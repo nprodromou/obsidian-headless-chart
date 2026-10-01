@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["obsidian", "vaults"],
+  "properties": {
+    "obsidian": {
+      "type": "object",
+      "properties": {
+        "installClient": { "type": "boolean" },
+        "deviceName": { "type": "string" },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "key": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "vaults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "remote"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$",
+            "description": "Local directory name and container suffix."
+          },
+          "remote": {
+            "type": ["string", "number"],
+            "description": "Remote vault name or ID."
+          },
+          "encryption": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "existingSecret": { "type": "string" },
+              "key": { "type": "string" }
+            }
+          },
+          "sync": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": { "enum": ["bidirectional", "pull-only", "mirror-remote"] },
+              "conflictStrategy": { "enum": ["merge", "conflict"] },
+              "configDir": { "type": "string", "pattern": "^\\.[^/\\\\]+$" },
+              "excludedFolders": { "type": "array", "items": { "type": "string" } },
+              "fileTypes": {
+                "type": "array",
+                "items": { "enum": ["image", "audio", "video", "pdf", "unsupported"] }
+              },
+              "configs": {
+                "type": "array",
+                "items": {
+                  "enum": ["app", "appearance", "appearance-data", "hotkey", "core-plugin",
+                    "core-plugin-data", "community-plugin", "community-plugin-data"]
+                }
+              }
+            }
+          },
+          "git": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repository"],
+            "properties": {
+              "repository": { "type": "string", "minLength": 1 },
+              "branch": { "type": "string" },
+              "discardLocalChanges": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            }
+          }
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "auth": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["none", "token", "ssh"] },
+            "existingSecret": { "type": "string" },
+            "username": { "type": "string" },
+            "tokenKey": { "type": "string" },
+            "sshKeyKey": { "type": "string" },
+            "knownHostsKey": { "type": "string" }
+          }
+        },
+        "intervalSeconds": { "type": "integer", "minimum": 30 },
+        "statusFile": { "type": "string" },
+        "lfs": { "type": "boolean" }
+      }
+    },
+    "timezone": { "type": "string", "minLength": 1 },
+    "sync": {
+      "type": "object",
+      "properties": {
+        "livenessStaleSeconds": { "type": "integer", "minimum": 120 }
+      }
+    },
+    "keeper": {
+      "type": "object",
+      "properties": {
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "keep": { "type": "boolean" },
+        "accessMode": { "type": "string" },
+        "size": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+# Git over SSH with an existing claim, pinned image digest, no persistence keep.
+obsidian:
+  auth:
+    existingSecret: obsidian-auth
+vaults:
+  - name: notes
+    remote: Notes
+    git:
+      repository: git@github.com:example/notes.git
+      discardLocalChanges: ["**"]
+git:
+  auth:
+    type: ssh
+    existingSecret: github-deploy-key
+  intervalSeconds: 300
+persistence:
+  existingClaim: obsidian-data
+image:
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

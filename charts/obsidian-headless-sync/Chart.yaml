@@ -1,0 +1,19 @@
+apiVersion: v2
+name: obsidian-headless-sync
+description: >-
+  Obsidian Sync without the desktop app, using the official headless client,
+  with optional git-backed vaults. Unofficial; not affiliated with Obsidian.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/nprodromou/obsidian-headless-chart
+sources:
+  - https://github.com/nprodromou/obsidian-headless-chart
+keywords:
+  - obsidian
+  - obsidian-sync
+  - notes
+  - git
+maintainers:
+  - name: nprodromou
+    url: https://github.com/nprodromou

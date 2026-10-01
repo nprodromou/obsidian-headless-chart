@@ -1,0 +1,30 @@
+{{- include "ohs.validate" . }}
+{{- $vaults := list }}
+{{- range .Values.vaults }}
+{{- $v := dict "name" .name "remote" (toString .remote) "encrypted" (ne (dig "encryption" "existingSecret" "" .) "") "sync" (.sync | default dict) }}
+{{- if dig "git" "repository" "" . }}
+{{- $_ := set $v "git" (dict "repository" .git.repository "branch" (.git.branch | default "") "discardLocalChanges" (.git.discardLocalChanges | default list)) }}
+{{- end }}
+{{- $vaults = append $vaults $v }}
+{{- end }}
+{{- $config := dict
+  "dataDir" "/data"
+  "statusDir" "/run/obsidian-headless"
+  "deviceName" (include "ohs.deviceName" .)
+  "installClient" .Values.obsidian.installClient
+  "timezone" .Values.timezone
+  "statusFile" .Values.git.statusFile
+  "intervalSeconds" .Values.git.intervalSeconds
+  "lfs" .Values.git.lfs
+  "metricsPort" .Values.keeper.port
+  "fixCommand" (printf "kubectl -n %s exec deploy/%s -c keeper --" .Release.Namespace (include "ohs.fullname" .))
+  "vaults" $vaults }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ohs.fullname" . }}
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{- toPrettyJson $config | nindent 4 }}

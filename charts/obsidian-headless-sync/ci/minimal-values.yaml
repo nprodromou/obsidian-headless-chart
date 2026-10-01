@@ -1,0 +1,7 @@
+# One plain Sync vault, no git, no monitoring.
+obsidian:
+  auth:
+    existingSecret: obsidian-auth
+vaults:
+  - name: notes
+    remote: My Notes

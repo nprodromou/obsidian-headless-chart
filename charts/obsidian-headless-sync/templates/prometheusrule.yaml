@@ -1,0 +1,51 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- $r := .Values.metrics.prometheusRule }}
+{{- $sel := printf "namespace=%q, job=%q" .Release.Namespace (include "ohs.fullname" .) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "ohs.fullname" . }}
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+    {{- with $r.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ include "ohs.fullname" . }}
+      rules:
+        - alert: ObsidianHeadlessDown
+          expr: up{ {{- $sel -}} } == 0 or absent(up{ {{- $sel -}} })
+          for: 15m
+          labels:
+            severity: {{ $r.severity }}
+          annotations:
+            summary: Obsidian headless sync metrics are not being scraped
+            description: The keeper in {{ .Release.Namespace }}/{{ include "ohs.fullname" . }} has not answered /metrics for 15 minutes. Devices are not receiving changes.
+        - alert: ObsidianVaultSyncStale
+          expr: time() - obsidian_headless_sync_last_fully_synced_timestamp_seconds{ {{- $sel -}} } > {{ $r.syncStaleSeconds }}
+          for: 10m
+          labels:
+            severity: {{ $r.severity }}
+          annotations:
+            summary: Obsidian vault {{`{{ $labels.vault }}`}} has not finished a sync pass recently
+            description: The client for vault {{`{{ $labels.vault }}`}} has not reported "Fully synced" for over {{ $r.syncStaleSeconds }} seconds. Check `kubectl logs -c sync-{{`{{ $labels.vault }}`}}`.
+        {{- if include "ohs.hasGitVaults" . }}
+        - alert: ObsidianVaultGitNotOK
+          expr: max by (namespace, vault, state) (obsidian_headless_git_state{ {{- $sel -}}, state!="OK"}) == 1
+          for: {{ $r.gitNotOkFor }}
+          labels:
+            severity: {{ $r.severity }}
+          annotations:
+            summary: Obsidian vault {{`{{ $labels.vault }}`}} is not following git ({{`{{ $labels.state }}`}})
+            description: The keeper cannot fast-forward vault {{`{{ $labels.vault }}`}}, so devices see stale content. Its VAULT-STATUS note says why and how to fix it.
+        - alert: ObsidianKeeperStalled
+          expr: time() - obsidian_headless_keeper_last_pass_timestamp_seconds{ {{- $sel -}} } > {{ add (mul .Values.git.intervalSeconds 3) 60 }}
+          for: 10m
+          labels:
+            severity: {{ $r.severity }}
+          annotations:
+            summary: The Obsidian vault keeper has stopped fast-forwarding
+            description: No keeper pass has finished in over three intervals.
+        {{- end }}
+{{- end }}

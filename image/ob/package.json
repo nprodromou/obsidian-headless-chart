@@ -1,0 +1,8 @@
+{
+  "name": "obsidian-headless-pin",
+  "private": true,
+  "description": "Pins the official Obsidian headless client. Installed at pod start from this lockfile; never bundled into the published image (the client is not openly licensed).",
+  "dependencies": {
+    "obsidian-headless": "0.0.14"
+  }
+}

@@ -1,0 +1,152 @@
+# Default values for obsidian-headless-sync.
+# Full walkthrough: https://github.com/nprodromou/obsidian-headless-chart
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/nprodromou/obsidian-headless-sync
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Pin by digest (sha256:...) to override the tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+obsidian:
+  # Install the official client (npm: obsidian-headless) at pod start, at the
+  # version pinned in the image's lockfile. The published image does not ship
+  # the client because it is not openly licensed. Set false only when running
+  # an image you built yourself with --build-arg BUNDLE_OB=true.
+  installClient: true
+  auth:
+    # Required. A Secret holding the token `ob login` stores locally
+    # (~/.obsidian-headless/auth_token on macOS, ~/.config/obsidian-headless/auth_token on Linux).
+    existingSecret: ""
+    key: OBSIDIAN_AUTH_TOKEN
+  # How this client appears in Obsidian Sync's version history.
+  # Defaults to the release's full name.
+  deviceName: ""
+
+# One entry per Obsidian Sync remote vault. Each runs in its own container.
+vaults: []
+#  - name: notes              # local directory and container suffix (lowercase, digits, -)
+#    remote: "My Notes"       # remote vault name or ID (`ob sync-list-remote`)
+#    encryption:              # only for end-to-end encrypted vaults
+#      existingSecret: obsidian-e2e
+#      key: notes
+#    sync:                    # all optional; omitted fields keep the client's defaults
+#      mode: bidirectional    # bidirectional | pull-only | mirror-remote
+#      conflictStrategy: merge
+#      excludedFolders: []
+#      fileTypes: [image, pdf]
+#      configs: []            # [] disables syncing .obsidian settings
+#    git:                     # optional: git is the source of truth, Sync carries it to devices
+#      repository: https://github.com/you/notes.git
+#      branch: ""             # default: the remote's default branch
+#      # Changed tracked files matching these globs are restored from git before
+#      # each fast-forward, so device edits to generated files cannot freeze the
+#      # vault. ["**"] makes the vault read-only from every device.
+#      discardLocalChanges: []
+
+git:
+  auth:
+    # none | token (HTTPS) | ssh
+    type: none
+    existingSecret: ""
+    username: x-access-token
+    tokenKey: token
+    sshKeyKey: ssh-privatekey
+    # Leave empty to trust a host key on first use.
+    knownHostsKey: known_hosts
+  # How often the keeper fetches and fast-forwards git-backed vaults.
+  intervalSeconds: 900
+  # Status note written into each git-backed vault (synced to devices).
+  # Empty disables it. Must not be tracked in the repo.
+  statusFile: VAULT-STATUS.md
+  lfs: true
+
+# Time zone for the status note.
+timezone: UTC
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+  # Keep the claim when the release is uninstalled. It holds the vaults and the
+  # client's sync state; losing it forces a full re-sync.
+  keep: true
+
+prepare:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+sync:
+  # A sync container is restarted after this long with no client output. An
+  # idle client logs every 30 seconds.
+  livenessStaleSeconds: 900
+  resources:
+    requests:
+      cpu: 20m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+keeper:
+  port: 9090
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+metrics:
+  service:
+    enabled: true
+    annotations: {}
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+    severity: warning
+    # A git-backed vault in any state other than OK for this long.
+    gitNotOkFor: 1h
+    # No "Fully synced" from a vault's client for this many seconds.
+    syncStaleSeconds: 1800
+
+extraEnv: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}

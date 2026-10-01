@@ -1,0 +1,40 @@
+# Git-backed vaults over HTTPS, E2E encryption, full monitoring.
+obsidian:
+  auth:
+    existingSecret: obsidian-auth
+  deviceName: homelab
+vaults:
+  - name: notes
+    remote: Notes
+    encryption:
+      existingSecret: obsidian-e2e
+      key: notes
+    sync:
+      configs: []
+      excludedFolders: [archive]
+    git:
+      repository: https://github.com/example/notes.git
+      discardLocalChanges:
+        - docs/briefs/**
+        - docs/calls/**
+  - name: coursework
+    remote: 0f1e2d3c4b5a
+    git:
+      repository: https://github.com/example/coursework.git
+      branch: main
+  - name: scratch
+    remote: Scratch
+    sync:
+      mode: pull-only
+git:
+  auth:
+    type: token
+    existingSecret: github-readonly
+timezone: America/Los_Angeles
+metrics:
+  serviceMonitor:
+    enabled: true
+  prometheusRule:
+    enabled: true
+    labels:
+      release: prometheus

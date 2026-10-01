@@ -1,0 +1,163 @@
+{{- $fullname := include "ohs.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+spec:
+  # Exactly one client per vault: two would fight over the same files and the
+  # same sync state. Recreate guarantees the old pod is gone first.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ohs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ohs.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        # Installs the client, clones git-backed vaults, and links each vault
+        # to its remote. Sync containers start only after it succeeds, so a git
+        # vault is always cloned before the client can write into it.
+        - name: prepare
+          image: {{ include "ohs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/app/bin/prepare.mjs"]
+          env:
+            {{- include "ohs.commonEnv" . | nindent 12 }}
+            {{- include "ohs.authEnv" . | nindent 12 }}
+            {{- include "ohs.gitEnv" . | nindent 12 }}
+            {{- range $i, $v := .Values.vaults }}
+            {{- with $v.encryption }}
+            {{- if .existingSecret }}
+            - name: VAULT_{{ $i }}_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret }}
+                  key: {{ .key | default "password" }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.prepare.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ohs.volumeMounts" . | nindent 12 }}
+            {{- include "ohs.gitVolumeMount" . | nindent 12 }}
+      containers:
+        # Fast-forwards git-backed vaults and serves /metrics and /healthz.
+        - name: keeper
+          image: {{ include "ohs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/app/bin/keeper.mjs"]
+          env:
+            {{- include "ohs.commonEnv" . | nindent 12 }}
+            {{- include "ohs.gitEnv" . | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.keeper.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 60
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.keeper.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ohs.volumeMounts" . | nindent 12 }}
+            {{- include "ohs.gitVolumeMount" . | nindent 12 }}
+        {{- range .Values.vaults }}
+        # `ob sync --continuous` for vault "{{ .name }}".
+        - name: sync-{{ .name }}
+          image: {{ include "ohs.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["node", "/app/bin/sync.mjs", {{ .name | quote }}]
+          env:
+            {{- include "ohs.commonEnv" $ | nindent 12 }}
+            {{- include "ohs.authEnv" $ | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - /app/bin/probe-fresh.sh
+                - /run/obsidian-headless/sync-{{ .name }}.json
+                - {{ $.Values.sync.livenessStaleSeconds | quote }}
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml $.Values.sync.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ohs.volumeMounts" $ | nindent 12 }}
+        {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "ohs.claimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ $fullname }}
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{- if eq .Values.git.auth.type "ssh" }}
+        - name: git-auth
+          secret:
+            secretName: {{ .Values.git.auth.existingSecret }}
+            # Group-readable via fsGroup; the scripts copy the key to 0600.
+            defaultMode: 0440
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

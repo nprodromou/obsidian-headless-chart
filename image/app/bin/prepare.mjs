@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import { loadConfig, vaultPassword } from '../lib/config.mjs';
+import { existingCloneProblem } from '../lib/clone.mjs';
 import { setupGitEnv, usesLfs } from '../lib/gitenv.mjs';
 import { installClient, ob, obVersion } from '../lib/ob.mjs';
 import { run, firstLine } from '../lib/proc.mjs';
@@ -23,12 +24,12 @@ function isEmptyDir(dir) {
 function ensureClone(vault, cfg) {
   const { dir } = vault;
   if (fs.existsSync(dir) && !isEmptyDir(dir)) {
-    const top = run('git', ['-C', dir, 'rev-parse', '--show-toplevel']);
-    if (!top.ok || fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(dir)) {
-      fail(C, `${vault.name}: ${dir} exists, is not empty, and is not a git clone. `
-        + 'Move it aside or delete it; the chart will not sync a git vault into an unknown directory.');
-    }
-    log(C, `${vault.name}: git clone present`);
+    // The PVC outlives values changes, so prove this is the configured repo.
+    // Rewriting origin here would have the keeper fast-forward a Sync-linked
+    // vault onto another repository's files, so a mismatch stops the pod.
+    const problem = existingCloneProblem(vault);
+    if (problem) fail(C, `${vault.name}: ${problem}`);
+    log(C, `${vault.name}: git clone of ${vault.git.repository} present`);
     return;
   }
   const args = ['clone', '--quiet'];

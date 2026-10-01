@@ -42,6 +42,13 @@ missing repository) blocks the whole pod, not just that vault. That's deliberate
 half-configured pod that looks healthy is harder to notice than one that fails to start and says
 why in `kubectl logs -c prepare`.
 
+**An existing clone has to match `git.repository`.** The PVC outlives values changes, so on every
+start `prepare` compares the clone's `remote.origin.url` with the configured repository (ignoring
+a trailing `/` or `.git`) and refuses to start on a mismatch. It doesn't rewrite `origin` itself:
+if the new value names a different repository, the keeper would fast-forward a vault that Sync
+has already uploaded onto unrelated files. When a repository genuinely moved, `git remote set-url`
+in the clone is the fix; otherwise move the directory aside and let `prepare` clone it fresh.
+
 ## The client is installed at start, not bundled
 
 The npm package `obsidian-headless` is published as `UNLICENSED`, and its repository has no

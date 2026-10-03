@@ -22,4 +22,9 @@ The client version is pinned by `image/ob/package-lock.json`, so a bump is an im
 reinstall the client on their next start, because the install marker on the data volume includes
 the lockfile's hash. Read the client's changelog before bumping. It is pre-1.0, and the chart
 depends on its CLI flags, on the exit codes of `sync-status` (3 for not linked, 2 for a missing
-encryption key), and on it logging "Fully synced".
+encryption key), and on it logging "Fully synced". The setup wizard and `prepare` also depend on
+prompts reading a non-TTY stdin to EOF (that is how passwords stay out of argv), on `sync-setup`'s
+`Password not provided.`, `Failed to validate password.` and `Multiple vaults named` lines, on
+`ob login` printing `Logged in as`, and on the token file living at
+`$XDG_CONFIG_HOME/obsidian-headless/auth_token`. `test/fake-ob.mjs` encodes these; recheck them
+against the new `cli.js`.

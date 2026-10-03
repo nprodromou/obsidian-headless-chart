@@ -1,4 +1,23 @@
 obsidian-headless-sync is syncing {{ len .Values.vaults }} vault(s) as device "{{ include "ohs.deviceName" . }}".
+{{- if eq (include "ohs.authMode" .) "file" }}
+
+Wizard mode: no obsidian.auth.existingSecret, so nothing syncs until you log in
+and link the vaults from the setup page.
+{{- if .Values.ui.enabled }}
+{{- if not (include "ohs.uiExposed" .) }}
+  kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "ohs.fullname" . }} {{ .Values.ui.port }}:{{ .Values.ui.port }}
+  then open http://localhost:{{ .Values.ui.port }}/setup
+{{- else }}
+  Open /setup on {{ join ", " .Values.ui.allowedHosts }}.
+{{- end }}
+It asks for the setup code the keeper prints once each time it starts:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "ohs.fullname" . }} -c keeper | grep 'setup code'
+{{- else }}
+ui.enabled is false, so there is no setup page. Log in from the keeper instead:
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "ohs.fullname" . }} -c keeper -- /data/.ob/node_modules/.bin/ob login
+then restart the pod to link the vaults.
+{{- end }}
+{{- end }}
 
 Watch the first start (the init container installs the client and links each vault):
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "ohs.fullname" . }} -c prepare -f
@@ -15,10 +34,10 @@ Run a pass now, without changing anything:
 
 {{- if .Values.ui.enabled }}
 
-Status page (read-only):
+Status page{{ if eq (include "ohs.authMode" .) "file" }} and setup wizard{{ else }} (read-only){{ end }}:
 {{- if include "ohs.uiExposed" . }}
   Listening on {{ .Values.ui.listenAddress }}:{{ .Values.ui.port }} and published on the Service as port "ui",
-  for host names {{ join ", " .Values.ui.allowedHosts }}. It has no authentication of its own.
+  for host names {{ join ", " .Values.ui.allowedHosts }}. The status page has no authentication of its own.
 {{- else }}
   kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "ohs.fullname" . }} {{ .Values.ui.port }}:{{ .Values.ui.port }}
   then open http://localhost:{{ .Values.ui.port }}

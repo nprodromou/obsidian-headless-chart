@@ -74,11 +74,12 @@ jobs:
       # Runs the image the way the chart does: unprivileged, read-only root,
       # writable /tmp and /data only. Installs the pinned client from npm, then
       # checks it starts and that its native SQLite binding loads. Then starts
-      # the keeper and fetches the status page from its loopback listener, with
-      # a foreign Host header refused.
+      # the keeper in wizard mode and fetches the status page and the setup
+      # code form from its loopback listener, with a foreign Host header
+      # refused and the setup code in the keeper's log.
       - name: Smoke run
         run: |
-          echo '{"dataDir":"/data","vaults":[]}' > "$RUNNER_TEMP/config.json"
+          echo '{"dataDir":"/data","authMode":"file","vaults":[]}' > "$RUNNER_TEMP/config.json"
           docker run --rm --platform ${{ matrix.platform }} \
             --user 1000:1000 --read-only \
             --tmpfs /tmp:uid=1000,gid=1000 --tmpfs /data:uid=1000,gid=1000,exec \
@@ -93,16 +94,16 @@ jobs:
               node --input-type=module -e "
                 import http from \"node:http\";
                 // fetch() drops a Host header; http.get sends it as given.
-                const once = (host) => new Promise((resolve, reject) => {
-                  http.get({ host: \"127.0.0.1\", port: 8080, path: \"/\", setHost: false, headers: { Host: host } }, (res) => {
+                const once = (host, path) => new Promise((resolve, reject) => {
+                  http.get({ host: \"127.0.0.1\", port: 8080, path, setHost: false, headers: { Host: host } }, (res) => {
                     let body = \"\";
                     res.on(\"data\", (c) => { body += c; });
                     res.on(\"end\", () => resolve({ status: res.statusCode, body }));
                   }).on(\"error\", reject);
                 });
-                const get = async (host) => {
+                const get = async (host, path = \"/\") => {
                   for (let i = 0; i < 50; i++) {
-                    try { return await once(host); } catch { await new Promise((r) => setTimeout(r, 200)); }
+                    try { return await once(host, path); } catch { await new Promise((r) => setTimeout(r, 200)); }
                   }
                   throw new Error(\"status page never came up\");
                 };
@@ -110,8 +111,11 @@ jobs:
                 if (ok.status !== 200 || !ok.body.includes(\"no git-backed vaults\")) throw new Error(\"status page: \" + ok.status);
                 const bad = await get(\"attacker.example\");
                 if (bad.status !== 421) throw new Error(\"foreign Host got \" + bad.status);
-                console.log(\"status page ok\");
+                const setup = await get(\"localhost:8080\", \"/setup\");
+                if (setup.status !== 200 || !setup.body.includes(\"name=\\\"code\\\"\")) throw new Error(\"setup page: \" + setup.status);
+                console.log(\"status page and setup form ok\");
               " || { cat /tmp/keeper.log; exit 1; }
+              grep -Eq "setup code: [0-9a-f]{32} " /tmp/keeper.log || { cat /tmp/keeper.log; exit 1; }
               git --version && git lfs version && ssh -V
             '
 

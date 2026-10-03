@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Keeper container: fast-forwards git-backed vaults on an interval, writes each
 // vault's status note, serves /metrics and /healthz for the whole pod, and
-// serves the read-only status page on a separate loopback listener.
+// serves the status page on a separate loopback listener. In wizard mode (no
+// auth Secret) that listener also serves the setup wizard, gated by a setup
+// code printed once to this log.
 // Runs even with no git-backed vaults, so sync metrics are still exported.
 //
 //   keeper.mjs            loop forever and serve HTTP
@@ -14,6 +16,8 @@ import { setupGitEnv } from '../lib/gitenv.mjs';
 import { processVault } from '../lib/keeper.mjs';
 import { writeStatus } from '../lib/status.mjs';
 import { createMetricsServer, createUiServer } from '../lib/server.mjs';
+import { createWizard } from '../lib/wizard.mjs';
+import { hasAuthToken, obAsync } from '../lib/ob.mjs';
 import { log, fail } from '../lib/log.mjs';
 
 const C = 'keeper';
@@ -74,11 +78,25 @@ const server = createMetricsServer(cfg, state);
 server.listen(cfg.metricsPort, () => log(C, `serving /metrics and /healthz on :${cfg.metricsPort}`));
 
 let ui = null;
+let wizard = null;
+if (cfg.ui.enabled && cfg.authMode === 'file') {
+  // The child never sees OBSIDIAN_AUTH_TOKEN: with it set, `ob login` would
+  // revoke that token and write a file the client then ignores.
+  const exec = (a, opts = {}) => obAsync(cfg, a, { ...opts, env: { ...(opts.env || {}), OBSIDIAN_AUTH_TOKEN: undefined } });
+  wizard = createWizard(cfg, { exec, hasToken: hasAuthToken, log: (m) => log(C, m) });
+} else if (cfg.authMode === 'file') {
+  log(C, 'no auth Secret and ui.enabled is false: there is no setup page; log in with '
+    + '`kubectl exec deploy/<release> -c keeper -- /data/.ob/node_modules/.bin/ob login`');
+}
 if (cfg.ui.enabled) {
-  ui = createUiServer(cfg, state);
+  ui = createUiServer(cfg, state, { wizard, hasToken: hasAuthToken });
   ui.on('error', (err) => fail(C, `status page listener on ${cfg.ui.listenAddress}:${cfg.ui.port}: ${err.message}`));
-  ui.listen(cfg.ui.port, cfg.ui.listenAddress,
-    () => log(C, `serving the status page on ${cfg.ui.listenAddress}:${cfg.ui.port}`));
+  ui.listen(cfg.ui.port, cfg.ui.listenAddress, () => {
+    log(C, `serving the status page on ${cfg.ui.listenAddress}:${cfg.ui.port}`);
+    // Printed once per start. Useless without network reach to the listener,
+    // which is loopback unless ui.listenAddress opts in.
+    if (wizard) log(C, `setup code: ${wizard.code} (enter it at /setup on the status page)`);
+  });
 }
 
 log(C, `${gitVaults.length} git-backed vault(s), every ${cfg.intervalSeconds}s`);

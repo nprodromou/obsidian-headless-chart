@@ -21,8 +21,15 @@ obsidian:
   # an image you built yourself with --build-arg BUNDLE_OB=true.
   installClient: true
   auth:
-    # Required. A Secret holding the token `ob login` stores locally
+    # A Secret holding the token `ob login` stores locally
     # (~/.obsidian-headless/auth_token on macOS, ~/.config/obsidian-headless/auth_token on Linux).
+    #
+    # Leave empty for wizard mode: no Secret, and you log in and link vaults
+    # from the setup page instead (see `ui`). The token then lives on the data
+    # volume. Set it for Secret mode, where the setup page is off and the pod
+    # refuses to start until every vault links. The two are exclusive; to move
+    # from wizard to Secret mode, set this and then delete
+    # /data/config/obsidian-headless/auth_token (don't `ob logout` it).
     existingSecret: ""
     key: OBSIDIAN_AUTH_TOKEN
   # How this client appears in Obsidian Sync's version history.
@@ -106,22 +113,29 @@ keeper:
     requests:
       cpu: 10m
       memory: 64Mi
+    # Covers a git pass plus one `ob` process from the setup wizard, which
+    # peaks at about 100Mi (an E2E `ob sync-setup`, scrypt key derivation).
     limits:
-      memory: 256Mi
+      memory: 384Mi
 
-# Read-only status page served by the keeper: per-vault sync times, the last
-# line each client logged, and for git-backed vaults the keeper state, changed
-# and untracked file names, and the fix command. It shows note titles, so it is
+# Status page served by the keeper: per-vault sync times, the last line each
+# client logged, and for git-backed vaults the keeper state, changed and
+# untracked file names, and the fix command. It shows note titles, so it is
 # kept off the Service and bound to loopback. Open it with
 #   kubectl port-forward deploy/<release> 8080:8080
 # and browse http://localhost:8080.
+#
+# In wizard mode (no obsidian.auth.existingSecret) it also serves the setup
+# wizard at /setup: log in to Obsidian and link the vaults declared below. The
+# wizard needs the setup code the keeper prints to its log on every start.
 ui:
   enabled: true
   port: 8080
   # 127.0.0.1 keeps the page reachable only through kubectl port-forward. Any
   # other address is the exposure opt-in: the chart then adds a `ui` port to the
   # Service and requires allowedHosts. It renders no Ingress or HTTPRoute, and
-  # the page has no authentication of its own; put your own in front of it.
+  # the status page has no authentication of its own (the setup wizard still
+  # needs its setup code); put your own in front of it.
   listenAddress: 127.0.0.1
   # Host names the page answers to, besides localhost, 127.0.0.1 and [::1].
   # Requests with any other Host header get 421 (DNS rebinding defence).

@@ -53,11 +53,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if and .Values.ui.enabled (not (or (hasPrefix "127." $a) (eq $a "::1") (eq $a "localhost"))) }}true{{ end }}
 {{- end }}
 
+{{/*
+"secret" when obsidian.auth.existingSecret is set, "file" (wizard mode) when not.
+The two are exclusive: in wizard mode no container gets OBSIDIAN_AUTH_TOKEN, and
+the token is the file `ob login` writes on the data volume.
+*/}}
+{{- define "ohs.authMode" -}}
+{{- if .Values.obsidian.auth.existingSecret }}secret{{ else }}file{{ end }}
+{{- end }}
+
 {{/* Fail early on values the schema cannot express. */}}
 {{- define "ohs.validate" -}}
-{{- if not .Values.obsidian.auth.existingSecret }}
-{{- fail "obsidian.auth.existingSecret is required: a Secret holding the token from `ob login`" }}
-{{- end }}
 {{- if not .Values.vaults }}
 {{- fail "vaults is empty: configure at least one vault" }}
 {{- end }}
@@ -94,12 +100,15 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 {{- end }}
 
+{{/* Nothing in wizard mode: the client would read the env var before the file. */}}
 {{- define "ohs.authEnv" -}}
+{{- if .Values.obsidian.auth.existingSecret -}}
 - name: OBSIDIAN_AUTH_TOKEN
   valueFrom:
     secretKeyRef:
       name: {{ .Values.obsidian.auth.existingSecret }}
       key: {{ .Values.obsidian.auth.key }}
+{{- end }}
 {{- end }}
 
 {{/* Git environment for the init and keeper containers. */}}

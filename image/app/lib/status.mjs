@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isTracked } from './keeper.mjs';
 
-const LIST_LIMIT = 20;
+export const LIST_LIMIT = 20;
 
 export function formatTime(epochSeconds, timeZone) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {

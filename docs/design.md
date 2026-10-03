@@ -18,7 +18,7 @@ One Deployment, one replica, `Recreate` strategy, one PersistentVolumeClaim.
 ```
 Pod
 ├── init: prepare      install client → clone git vaults → link vaults to remotes
-├── keeper             fast-forward git vaults every N seconds; /metrics, /healthz
+├── keeper             fast-forward git vaults every N seconds; /metrics, /healthz; status page
 ├── sync-<vault-a>     ob sync --continuous (supervised)
 └── sync-<vault-b>     ...
 
@@ -157,6 +157,32 @@ comes from one scrape target.
 Keeper state (including how long a vault has been in its current state) lives in memory, so a
 keeper restart restarts the `gitNotOkFor` clock. That's acceptable: a restart loop is itself
 alerted on, and the status note still shows the state.
+
+## The status page
+
+The keeper serves a read-only HTML page on its own listener, separate from `/metrics`. Decided in
+[`proposals/web-ui.md`](proposals/web-ui.md) (tier 1, OPS-1264); the reasoning in brief:
+
+- **Not on the metrics port.** `:9090` is behind a `ClusterIP` Service, so anything in the
+  cluster can read it. The page adds file names (note titles, often personal, and attacker-chosen
+  when a device is compromised) and client log lines. So it gets its own port, bound to
+  `127.0.0.1` and left out of the Service. `kubectl port-forward` connects inside the pod's network
+  namespace, so it reaches a loopback listener; nothing else does.
+- **Host allowlist on every request.** A page in the operator's browser can point a hostname it
+  controls at `127.0.0.1` and read an open port-forward (DNS rebinding). The browser still sends
+  the attacker's hostname as `Host`, so anything other than `localhost`, `127.0.0.1`, `[::1]` and
+  `ui.allowedHosts` gets 421 before routing.
+- **No script, strict CSP, everything escaped.** The page is server-rendered with one escaping
+  helper for every interpolated value, refreshes with `<meta http-equiv="refresh">`, and is served
+  with `default-src 'none'`. Tier 2 (setup wizard, OPS-1265) adds routes to this listener and
+  inherits all of it.
+- **Exposure is an explicit opt-in.** A non-loopback `ui.listenAddress` adds the port to the
+  Service and requires `ui.allowedHosts`. The chart renders no Ingress; authentication in front of
+  it is the operator's.
+
+Keeper results come from the same object that renders `VAULT-STATUS.md`, including `fixHint()`,
+so the page and the note can't disagree. The keeper is single-threaded and git calls are
+synchronous, so the page doesn't answer during a pass; a refreshing status page tolerates that.
 
 ## Non-goals
 

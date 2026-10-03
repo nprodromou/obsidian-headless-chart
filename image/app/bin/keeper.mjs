@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 // Keeper container: fast-forwards git-backed vaults on an interval, writes each
-// vault's status note, and serves /metrics and /healthz for the whole pod.
+// vault's status note, serves /metrics and /healthz for the whole pod, and
+// serves the read-only status page on a separate loopback listener.
 // Runs even with no git-backed vaults, so sync metrics are still exported.
 //
 //   keeper.mjs            loop forever and serve HTTP
 //   keeper.mjs --once     one pass, print results, exit (run by hand via kubectl exec)
 //   keeper.mjs --dry-run  with --once: fetch and report, change nothing
 
-import http from 'node:http';
 import { createRequire } from 'node:module';
 import { loadConfig } from '../lib/config.mjs';
 import { setupGitEnv } from '../lib/gitenv.mjs';
 import { processVault } from '../lib/keeper.mjs';
 import { writeStatus } from '../lib/status.mjs';
-import { renderMetrics } from '../lib/metrics.mjs';
+import { createMetricsServer, createUiServer } from '../lib/server.mjs';
 import { log, fail } from '../lib/log.mjs';
 
 const C = 'keeper';
@@ -70,27 +70,16 @@ if (once) {
   process.exit(0);
 }
 
-// Healthy while a pass has finished recently. Three intervals of slack covers
-// one slow fetch without flapping; a wedged loop still gets restarted.
-function healthy() {
-  const last = state.lastPassAt || state.startedAt;
-  return now() - last <= cfg.intervalSeconds * 3 + 60;
-}
-
-const server = http.createServer((req, res) => {
-  if (req.url === '/metrics') {
-    res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
-    res.end(renderMetrics(cfg, state));
-  } else if (req.url === '/healthz') {
-    const ok = healthy();
-    res.writeHead(ok ? 200 : 503, { 'Content-Type': 'text/plain' });
-    res.end(ok ? 'ok\n' : 'keeper pass overdue\n');
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-});
+const server = createMetricsServer(cfg, state);
 server.listen(cfg.metricsPort, () => log(C, `serving /metrics and /healthz on :${cfg.metricsPort}`));
+
+let ui = null;
+if (cfg.ui.enabled) {
+  ui = createUiServer(cfg, state);
+  ui.on('error', (err) => fail(C, `status page listener on ${cfg.ui.listenAddress}:${cfg.ui.port}: ${err.message}`));
+  ui.listen(cfg.ui.port, cfg.ui.listenAddress,
+    () => log(C, `serving the status page on ${cfg.ui.listenAddress}:${cfg.ui.port}`));
+}
 
 log(C, `${gitVaults.length} git-backed vault(s), every ${cfg.intervalSeconds}s`);
 pass();
@@ -99,6 +88,7 @@ const timer = setInterval(pass, cfg.intervalSeconds * 1000);
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     clearInterval(timer);
+    if (ui) ui.close();
     server.close(() => process.exit(0));
   });
 }

@@ -17,6 +17,7 @@
   "intervalSeconds" .Values.git.intervalSeconds
   "lfs" .Values.git.lfs
   "metricsPort" .Values.keeper.port
+  "ui" (dict "enabled" .Values.ui.enabled "port" .Values.ui.port "listenAddress" .Values.ui.listenAddress "allowedHosts" (.Values.ui.allowedHosts | default list))
   "fixCommand" (printf "kubectl -n %s exec deploy/%s -c keeper --" .Release.Namespace (include "ohs.fullname" .))
   "vaults" $vaults }}
 apiVersion: v1

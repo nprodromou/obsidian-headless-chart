@@ -13,6 +13,18 @@ Run a pass now, without changing anything:
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "ohs.fullname" . }} -c keeper -- node /app/bin/keeper.mjs --once --dry-run
 {{- end }}
 
+{{- if .Values.ui.enabled }}
+
+Status page (read-only):
+{{- if include "ohs.uiExposed" . }}
+  Listening on {{ .Values.ui.listenAddress }}:{{ .Values.ui.port }} and published on the Service as port "ui",
+  for host names {{ join ", " .Values.ui.allowedHosts }}. It has no authentication of its own.
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "ohs.fullname" . }} {{ .Values.ui.port }}:{{ .Values.ui.port }}
+  then open http://localhost:{{ .Values.ui.port }}
+{{- end }}
+{{- end }}
+
 Do not run desktop Obsidian Sync for these vaults on a machine that also writes
 the same content (for example, a laptop fast-forwarding the same git clone).
 Two writers uploading the same changes produce conflict files.

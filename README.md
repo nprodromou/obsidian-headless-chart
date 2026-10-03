@@ -20,7 +20,7 @@ One pod holds every vault:
 - **`sync-<vault>`** runs `ob sync --continuous` for one vault. One container per vault, so a
   problem with one vault restarts only that vault.
 - **`keeper`** fast-forwards git-backed vaults on an interval, writes a status note into each,
-  and serves `/metrics` and `/healthz`.
+  serves `/metrics` and `/healthz`, and serves a read-only status page on loopback.
 
 The published image does **not** contain the Obsidian client, because that package is not openly
 licensed. The init container installs the version pinned in [`image/ob/package-lock.json`](image/ob/package-lock.json)
@@ -115,6 +115,29 @@ a phone reaches the clone, where the keeper reports it (or restores it, per
 remote holds into the clone. If the remote already matches the repo's default branch, that merge
 does nothing. If it doesn't, expect `DIRTY` or untracked files on the first status note. Either
 review them, or start from a new, empty remote vault.
+
+## Status page
+
+The keeper serves a read-only page with each vault's sync times and the last line its client
+logged, and for git-backed vaults the keeper state, HEAD, how far behind it is, the changed and
+untracked files, and the command that fixes it. It listens on `127.0.0.1:8080` inside the pod and
+is not in the Service, so the only way in is a port-forward:
+
+```bash
+kubectl -n <namespace> port-forward deploy/<release> 8080:8080
+```
+
+Then open <http://localhost:8080>. The page refreshes itself every 30 seconds. It doesn't answer
+while the keeper is mid-pass (git runs synchronously), so a slow fetch shows as a slow load.
+
+It shows note titles, so it is kept off the metrics port that Prometheus and anything else in the
+cluster can reach. It answers only to `Host: localhost`, `127.0.0.1` or `[::1]`, which stops a web
+page from reading it through your port-forward by DNS rebinding.
+
+To publish it anyway, set `ui.listenAddress` to a non-loopback address (`0.0.0.0`) and list the
+host names it will be reached by in `ui.allowedHosts`. The chart then adds a `ui` port to the
+Service. It renders no Ingress, and the page has no login of its own, so put your own
+authentication in front of it. `ui.enabled: false` turns the page off.
 
 ## Monitoring
 

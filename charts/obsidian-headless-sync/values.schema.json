@@ -107,6 +107,19 @@
         "port": { "type": "integer", "minimum": 1024, "maximum": 65535 }
       }
     },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "listenAddress": { "type": "string", "minLength": 1 },
+        "allowedHosts": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^([A-Za-z0-9.-]+|\\[[0-9A-Fa-f:.]+\\])$" }
+        }
+      }
+    },
     "persistence": {
       "type": "object",
       "properties": {

@@ -1,4 +1,5 @@
-{{- if .Values.metrics.service.enabled }}
+{{- $exposeUi := include "ohs.uiExposed" . }}
+{{- if or .Values.metrics.service.enabled $exposeUi }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,8 +15,17 @@ spec:
   selector:
     {{- include "ohs.selectorLabels" . | nindent 4 }}
   ports:
+    {{- if .Values.metrics.service.enabled }}
     - name: metrics
       port: {{ .Values.keeper.port }}
       targetPort: metrics
       protocol: TCP
+    {{- end }}
+    {{- /* The status page is in the Service only when ui.listenAddress opts in. */}}
+    {{- if $exposeUi }}
+    - name: ui
+      port: {{ .Values.ui.port }}
+      targetPort: ui
+      protocol: TCP
+    {{- end }}
 {{- end }}

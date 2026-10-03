@@ -73,7 +73,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
       # Runs the image the way the chart does: unprivileged, read-only root,
       # writable /tmp and /data only. Installs the pinned client from npm, then
-      # checks it starts and that its native SQLite binding loads.
+      # checks it starts and that its native SQLite binding loads. Then starts
+      # the keeper and fetches the status page from its loopback listener, with
+      # a foreign Host header refused.
       - name: Smoke run
         run: |
           echo '{"dataDir":"/data","vaults":[]}' > "$RUNNER_TEMP/config.json"
@@ -87,6 +89,29 @@ jobs:
               node /app/bin/prepare.mjs --install-only | grep -q "already installed"
               node /app/bin/smoke.mjs
               node /app/bin/keeper.mjs --version
+              node /app/bin/keeper.mjs > /tmp/keeper.log 2>&1 &
+              node --input-type=module -e "
+                import http from \"node:http\";
+                // fetch() drops a Host header; http.get sends it as given.
+                const once = (host) => new Promise((resolve, reject) => {
+                  http.get({ host: \"127.0.0.1\", port: 8080, path: \"/\", setHost: false, headers: { Host: host } }, (res) => {
+                    let body = \"\";
+                    res.on(\"data\", (c) => { body += c; });
+                    res.on(\"end\", () => resolve({ status: res.statusCode, body }));
+                  }).on(\"error\", reject);
+                });
+                const get = async (host) => {
+                  for (let i = 0; i < 50; i++) {
+                    try { return await once(host); } catch { await new Promise((r) => setTimeout(r, 200)); }
+                  }
+                  throw new Error(\"status page never came up\");
+                };
+                const ok = await get(\"localhost:8080\");
+                if (ok.status !== 200 || !ok.body.includes(\"no git-backed vaults\")) throw new Error(\"status page: \" + ok.status);
+                const bad = await get(\"attacker.example\");
+                if (bad.status !== 421) throw new Error(\"foreign Host got \" + bad.status);
+                console.log(\"status page ok\");
+              " || { cat /tmp/keeper.log; exit 1; }
               git --version && git lfs version && ssh -V
             '
 

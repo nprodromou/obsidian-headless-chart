@@ -49,5 +49,7 @@ export function renderMetrics(cfg, keeperState) {
     sync.map(([vault, s]) => [{ vault }, s.lastOutputAt]));
   o.metric('sync_last_fully_synced_timestamp_seconds', 'When the sync client last reported "Fully synced" (falls back to its start time).', 'gauge',
     sync.map(([vault, s]) => [{ vault }, s.lastFullySyncedAt || s.startedAt]));
+  o.metric('sync_linked', 'Whether the vault is linked to its remote (0 while its sync container waits for a link).', 'gauge',
+    sync.map(([vault, s]) => [{ vault }, s.waiting === 'not-linked' ? 0 : 1]));
   return o.text();
 }

@@ -5,6 +5,8 @@
 #   3. the rendered config.json loads through the app's own config parser
 #   4. values the chart must refuse are refused at template time
 #   5. the status page stays off the Service unless ui.listenAddress opts in
+#   6. auth: Secret mode feeds OBSIDIAN_AUTH_TOKEN to prepare and sync only;
+#      wizard mode (no Secret) feeds it to nothing
 # Needs helm, kubeconform, yq (mikefarah) and node.
 set -euo pipefail
 
@@ -46,7 +48,6 @@ expect_fail() {
   echo "   refused as expected: $want"
 }
 echo "== invalid values"
-expect_fail "obsidian.auth.existingSecret is required" --set 'vaults[0].name=a' --set 'vaults[0].remote=A'
 expect_fail "vaults is empty" --set obsidian.auth.existingSecret=s
 expect_fail "used twice" --set obsidian.auth.existingSecret=s \
   --set 'vaults[0].name=a' --set 'vaults[0].remote=A' --set 'vaults[1].name=a' --set 'vaults[1].remote=B'
@@ -72,5 +73,16 @@ if yq -e 'select(.kind == "Deployment") | .spec.template.spec.containers[] | sel
   echo "FAIL: ui.enabled=false still renders the ui port"; exit 1
 fi
 echo "   ui port: keeper only by default, on the Service only when exposed"
+
+echo "== auth mode"
+token_containers() {
+  yq -r 'select(.kind == "Deployment") | .spec.template.spec | (.initContainers + .containers)[]
+    | select(.env[]?.name == "OBSIDIAN_AUTH_TOKEN") | .name' "$OUT/$1.yaml" | sort -u | tr '\n' ' '
+}
+[[ "$(token_containers minimal-values)" == "prepare sync-notes " ]] || { echo "FAIL: Secret mode token containers: $(token_containers minimal-values)"; exit 1; }
+[[ -z "$(token_containers wizard-values)" ]] || { echo "FAIL: wizard mode gave the token to: $(token_containers wizard-values)"; exit 1; }
+grep -q '"authMode": "secret"' "$OUT/minimal-values.config.json" || { echo "FAIL: Secret mode authMode"; exit 1; }
+grep -q '"authMode": "file"' "$OUT/wizard-values.config.json" || { echo "FAIL: wizard mode authMode"; exit 1; }
+echo "   token: prepare and sync containers in Secret mode, nowhere in wizard mode"
 
 echo "chart checks passed"

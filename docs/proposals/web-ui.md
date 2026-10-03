@@ -1,7 +1,9 @@
 # Proposal: a web UI for setup and status
 
 Status: **reviewed and decided** (OPS-1267, 2026-10-03). Tier 1 (OPS-1264) and tier 2 (OPS-1265)
-are released to build, in that order. Tier 3 (OPS-1266) is cancelled as a non-goal and recorded in
+are released to build, in that order. Tier 1 is built. Tier 2 is built as
+[the setup wizard](../design.md#the-setup-wizard); its client behaviors were confirmed against the
+pinned client with its HTTP calls stubbed, and still need one run against a real account. Tier 3 (OPS-1266) is cancelled as a non-goal and recorded in
 [`docs/design.md`](../design.md#non-goals).
 
 The original proposal is kept below as written where it held up. [Review](#review) records what

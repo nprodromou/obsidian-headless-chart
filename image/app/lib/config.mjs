@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG_PATH = '/etc/obsidian-headless/config.json';
 const VAULT_NAME = /^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$/;
 const SYNC_MODES = ['bidirectional', 'pull-only', 'mirror-remote'];
 const CONFLICT_STRATEGIES = ['merge', 'conflict'];
+const AUTH_MODES = ['secret', 'file'];
 const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/i;
 
 export function isLoopback(address) {
@@ -26,6 +27,10 @@ export function normalizeConfig(raw) {
     statusDir: raw.statusDir || '/run/obsidian-headless',
     deviceName: raw.deviceName || 'obsidian-headless-sync',
     installClient: raw.installClient !== false,
+    // secret: OBSIDIAN_AUTH_TOKEN comes from obsidian.auth.existingSecret.
+    // file:   no Secret; the token is the file `ob login` writes on the data
+    //         volume, and the setup wizard is the way to write it.
+    authMode: raw.authMode || 'secret',
     timezone: raw.timezone || 'UTC',
     statusFile: raw.statusFile ?? 'VAULT-STATUS.md',
     intervalSeconds: Number(raw.intervalSeconds || 900),
@@ -35,6 +40,9 @@ export function normalizeConfig(raw) {
     ui: normalizeUi(raw.ui || {}),
     vaults: [],
   };
+  if (!AUTH_MODES.includes(cfg.authMode)) {
+    throw new Error(`authMode must be one of ${AUTH_MODES.join(', ')}, got ${JSON.stringify(raw.authMode)}`);
+  }
   if (cfg.ui.enabled && cfg.ui.port === cfg.metricsPort) {
     throw new Error(`ui.port must differ from metricsPort (both ${cfg.metricsPort})`);
   }

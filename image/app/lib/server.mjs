@@ -2,9 +2,10 @@
 //
 // metrics: /metrics and /healthz on all interfaces, behind the chart's Service,
 //          scraped by Prometheus. Nothing else is served here.
-// ui:      the read-only status page, on its own port, bound to loopback by
-//          default and not in the Service. It shows file names and client log
-//          lines, which the metrics port deliberately does not.
+// ui:      the status page, on its own port, bound to loopback by default and
+//          not in the Service. It shows file names and client log lines, which
+//          the metrics port deliberately does not. In wizard mode it also
+//          serves the setup wizard under /setup (lib/wizard.mjs).
 
 import http from 'node:http';
 import { renderMetrics } from './metrics.mjs';
@@ -38,7 +39,9 @@ function plain(res, status, body, extra = {}) {
   res.end(body);
 }
 
-export function createUiServer(cfg, keeperState) {
+// wizard: from createWizard() in wizard mode, null in Secret mode, where the
+// /setup routes don't exist. hasToken: whether the token file is present.
+export function createUiServer(cfg, keeperState, { wizard = null, hasToken = () => false } = {}) {
   return http.createServer((req, res) => {
     // Checked before routing, so a rebinding page learns nothing, not even
     // which paths exist.
@@ -46,16 +49,23 @@ export function createUiServer(cfg, keeperState) {
       plain(res, 421, 'Misdirected request: this host name is not in ui.allowedHosts.\n');
       return;
     }
+    const path = (req.url || '/').split('?')[0];
+    if (wizard && (path === '/setup' || path.startsWith('/setup/'))) {
+      wizard.handle(req, res, path).catch(() => {
+        if (!res.headersSent) plain(res, 500, 'Internal error.\n');
+        else res.end();
+      });
+      return;
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       plain(res, 405, 'Method not allowed.\n', { Allow: 'GET, HEAD' });
       return;
     }
-    const path = (req.url || '/').split('?')[0];
     if (path !== '/') {
       plain(res, 404, 'Not found.\n');
       return;
     }
-    const body = renderPage(cfg, keeperState);
+    const body = renderPage(cfg, keeperState, undefined, { loggedIn: cfg.authMode === 'file' && hasToken() });
     res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/html; charset=utf-8' });
     res.end(req.method === 'HEAD' ? undefined : body);
   });

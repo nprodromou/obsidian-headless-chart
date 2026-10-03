@@ -7,8 +7,9 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { run, firstLine } from './proc.mjs';
+import { run, runAsync, firstLine } from './proc.mjs';
 
 export const PIN_DIR = process.env.OB_PIN_DIR || '/app/ob';
 
@@ -64,6 +65,25 @@ export function pinnedVersion(pinDir = PIN_DIR) {
 
 export function ob(cfg, args, opts = {}) {
   return run(obBin(cfg), args, opts);
+}
+
+export function obAsync(cfg, args, opts = {}) {
+  return runAsync(obBin(cfg), args, opts);
+}
+
+// Where `ob login` keeps its token on Linux. In wizard mode this file, on the
+// data volume, is the only credential the pod has.
+export function authTokenPath(env = process.env) {
+  const base = env.XDG_CONFIG_HOME || path.join(env.HOME || os.homedir(), '.config');
+  return path.join(base, 'obsidian-headless', 'auth_token');
+}
+
+export function hasAuthToken(env = process.env) {
+  try {
+    return fs.statSync(authTokenPath(env)).size > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function obVersion(cfg) {

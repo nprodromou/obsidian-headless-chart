@@ -65,6 +65,11 @@ function row(label, value) {
 function syncSection(cfg, vault, now) {
   const s = readSyncStatus(syncStatusPath(cfg, vault.name));
   if (!s) return '<p>Sync client: no status yet (the container has not started, or has not written its first status).</p>';
+  if (s.waiting === 'not-linked') {
+    const how = cfg.authMode === 'file' ? ' Link it from the <a href="/setup">setup page</a>.' : '';
+    return `<p>Sync client: <span class="state pending">not linked yet</span>; its container is waiting for a link.${how}</p>`
+      + `<table>${row('Waiting since', when(s.startedAt, cfg, now))}${row('Last check', s.lastLine ? `<code>${html(s.lastLine)}</code>` : '-')}</table>`;
+  }
   return `<table>${[
     row('Client started', when(s.startedAt, cfg, now)),
     row('Last "Fully synced"', when(s.lastFullySyncedAt, cfg, now)),
@@ -97,8 +102,48 @@ function gitSection(cfg, vault, keeperState, now) {
     + fix;
 }
 
+function authLine(cfg, loggedIn) {
+  if (cfg.authMode !== 'file') {
+    return '<p class="meta">Auth: managed by a Secret (obsidian.auth.existingSecret). The setup wizard is off in this mode.</p>';
+  }
+  return `<p class="meta">Auth: the token file on the data volume; ${loggedIn ? 'logged in' : '<strong>not logged in</strong>'}. `
+    + 'Log in and link vaults on the <a href="/setup">setup page</a>.</p>';
+}
+
+const STYLE = `body { font: 15px/1.45 system-ui, sans-serif; max-width: 60rem; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
+h1 { font-size: 1.3rem; } h2 { font-size: 1.1rem; margin-bottom: .2rem; }
+section { border-top: 1px solid #ddd; padding: .5rem 0 1rem; }
+table { border-collapse: collapse; } th { text-align: left; font-weight: 600; padding: .1rem 1rem .1rem 0; vertical-align: top; }
+td { padding: .1rem 1rem .1rem 0; vertical-align: top; }
+code, pre { font-size: .9em; word-break: break-all; } pre { background: #f5f5f5; padding: .5rem; white-space: pre-wrap; }
+.remote, .meta { color: #666; } a { color: #0b57d0; }
+.state { font-weight: 700; } .ok { color: #176f2c; } .bad { color: #b3261e; } .pending { color: #8a6d00; }
+.flash { padding: .5rem .75rem; border-left: 4px solid; } .flash.ok { border-color: #176f2c; } .flash.bad { border-color: #b3261e; }
+label { display: block; margin: .3rem 0; } input[type=text], input[type=email], input[type=password] { width: 18rem; }`;
+
+// The page shell shared by the status page and the setup wizard. `title` and
+// `body` must already be escaped.
+export function layout(title, body, { refresh = 0 } = {}) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+${refresh ? `<meta http-equiv="refresh" content="${refresh}">\n` : ''}<title>${title}</title>
+<style>
+${STYLE}
+</style>
+</head>
+<body>
+${body}
+</body>
+</html>
+`;
+}
+
 // keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal }) }
-export function renderPage(cfg, keeperState, now = Math.floor(Date.now() / 1000)) {
+// loggedIn: whether the token file exists (wizard mode only).
+export function renderPage(cfg, keeperState, now = Math.floor(Date.now() / 1000), { loggedIn = false } = {}) {
   const vaults = cfg.vaults.map((v) => `<section><h2>${html(v.name)}</h2>`
     + `<p class="remote">Remote: ${html(v.remote)}${v.git ? ' &middot; git-backed' : ''}</p>`
     + syncSection(cfg, v, now)
@@ -109,27 +154,8 @@ export function renderPage(cfg, keeperState, now = Math.floor(Date.now() / 1000)
     ? `Keeper started ${when(keeperState.startedAt, cfg, now)}; last pass ${when(keeperState.lastPassAt, cfg, now)}; `
       + `${gitCount} git-backed vault(s) every ${html(cfg.intervalSeconds)}s.`
     : `Keeper started ${when(keeperState.startedAt, cfg, now)}; no git-backed vaults.`;
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="${REFRESH_SECONDS}">
-<title>${html(cfg.deviceName)} &middot; obsidian-headless-sync</title>
-<style>
-body { font: 15px/1.45 system-ui, sans-serif; max-width: 60rem; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
-h1 { font-size: 1.3rem; } h2 { font-size: 1.1rem; margin-bottom: .2rem; }
-section { border-top: 1px solid #ddd; padding: .5rem 0 1rem; }
-table { border-collapse: collapse; } th { text-align: left; font-weight: 600; padding: .1rem 1rem .1rem 0; vertical-align: top; }
-code { font-size: .9em; word-break: break-all; } .remote, .meta { color: #666; }
-.state { font-weight: 700; } .ok { color: #176f2c; } .bad { color: #b3261e; } .pending { color: #8a6d00; }
-</style>
-</head>
-<body>
-<h1>${html(cfg.deviceName)}</h1>
+  return layout(`${html(cfg.deviceName)} &middot; obsidian-headless-sync`, `<h1>${html(cfg.deviceName)}</h1>
 <p class="meta">${keeper} Checked ${html(formatTime(now, cfg.timezone))}; this page refreshes every ${REFRESH_SECONDS}s.</p>
-${vaults.join('\n')}
-</body>
-</html>
-`;
+${authLine(cfg, loggedIn)}
+${vaults.join('\n')}`, { refresh: REFRESH_SECONDS });
 }

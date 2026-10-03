@@ -12,6 +12,7 @@
   "statusDir" "/run/obsidian-headless"
   "deviceName" (include "ohs.deviceName" .)
   "installClient" .Values.obsidian.installClient
+  "authMode" (include "ohs.authMode" .)
   "timezone" .Values.timezone
   "statusFile" .Values.git.statusFile
   "intervalSeconds" .Values.git.intervalSeconds

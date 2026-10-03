@@ -1,0 +1,7 @@
+# Wizard mode: no auth Secret. Nothing syncs until someone logs in and links
+# the vaults from the setup page.
+vaults:
+  - name: notes
+    remote: My Notes
+  - name: journal
+    remote: Journal

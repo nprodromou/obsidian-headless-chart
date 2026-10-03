@@ -47,6 +47,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- range .Values.vaults }}{{ if dig "git" "repository" "" . }}true{{ end }}{{ end }}
 {{- end }}
 
+{{/* "true" when the status page listens on something other than loopback. */}}
+{{- define "ohs.uiExposed" -}}
+{{- $a := .Values.ui.listenAddress | trimPrefix "[" | trimSuffix "]" | lower }}
+{{- if and .Values.ui.enabled (not (or (hasPrefix "127." $a) (eq $a "::1") (eq $a "localhost"))) }}true{{ end }}
+{{- end }}
+
 {{/* Fail early on values the schema cannot express. */}}
 {{- define "ohs.validate" -}}
 {{- if not .Values.obsidian.auth.existingSecret }}
@@ -61,6 +67,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- fail (printf "vault name %q is used twice" .name) }}
 {{- end }}
 {{- $_ := set $seen .name true }}
+{{- end }}
+{{- if and .Values.ui.enabled (eq (int .Values.ui.port) (int .Values.keeper.port)) }}
+{{- fail "ui.port must differ from keeper.port" }}
+{{- end }}
+{{- if and (include "ohs.uiExposed" .) (not .Values.ui.allowedHosts) }}
+{{- fail "ui.allowedHosts is required when ui.listenAddress is not loopback: list the host names the status page is reached by" }}
 {{- end }}
 {{- if and (include "ohs.hasGitVaults" .) (ne .Values.git.auth.type "none") (not .Values.git.auth.existingSecret) }}
 {{- fail "git.auth.existingSecret is required when git.auth.type is token or ssh" }}

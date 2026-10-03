@@ -1,0 +1,11 @@
+# Status page opted in to exposure: the chart adds it to the Service, and the
+# operator brings their own authenticating proxy in front.
+obsidian:
+  auth:
+    existingSecret: obsidian-auth
+vaults:
+  - name: notes
+    remote: Notes
+ui:
+  listenAddress: 0.0.0.0
+  allowedHosts: [obsidian-status.example.com]

@@ -9,6 +9,11 @@ export const DEFAULT_CONFIG_PATH = '/etc/obsidian-headless/config.json';
 const VAULT_NAME = /^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$/;
 const SYNC_MODES = ['bidirectional', 'pull-only', 'mirror-remote'];
 const CONFLICT_STRATEGIES = ['merge', 'conflict'];
+const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/i;
+
+export function isLoopback(address) {
+  return LOOPBACK.test(String(address).replace(/^\[|\]$/g, ''));
+}
 
 export function loadConfig(file = process.env.OBSIDIAN_HEADLESS_CONFIG || DEFAULT_CONFIG_PATH) {
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -27,8 +32,12 @@ export function normalizeConfig(raw) {
     lfs: raw.lfs !== false,
     metricsPort: Number(raw.metricsPort || 9090),
     fixCommand: raw.fixCommand || '',
+    ui: normalizeUi(raw.ui || {}),
     vaults: [],
   };
+  if (cfg.ui.enabled && cfg.ui.port === cfg.metricsPort) {
+    throw new Error(`ui.port must differ from metricsPort (both ${cfg.metricsPort})`);
+  }
   if (!Number.isFinite(cfg.intervalSeconds) || cfg.intervalSeconds < 30) {
     throw new Error(`intervalSeconds must be >= 30, got ${raw.intervalSeconds}`);
   }
@@ -70,6 +79,25 @@ export function normalizeConfig(raw) {
     });
   });
   return cfg;
+}
+
+// The status page listener. Loopback by default: reaching it takes
+// `kubectl port-forward`. A non-loopback address is the exposure opt-in and
+// must name the Host headers it answers to.
+function normalizeUi(raw) {
+  const ui = {
+    enabled: raw.enabled !== false,
+    port: Number(raw.port || 8080),
+    listenAddress: raw.listenAddress || '127.0.0.1',
+    allowedHosts: (raw.allowedHosts || []).map((h) => String(h).toLowerCase()),
+  };
+  if (!Number.isInteger(ui.port) || ui.port < 1 || ui.port > 65535) {
+    throw new Error(`ui.port must be a port number, got ${raw.port}`);
+  }
+  if (ui.enabled && !isLoopback(ui.listenAddress) && !ui.allowedHosts.length) {
+    throw new Error(`ui.allowedHosts is required when ui.listenAddress (${ui.listenAddress}) is not loopback`);
+  }
+  return ui;
 }
 
 // The E2E password for vault N arrives as VAULT_<N>_PASSWORD (index, not name,

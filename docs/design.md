@@ -164,3 +164,7 @@ alerted on, and the status note still shows the state.
 - **Writing back to git.** Device edits are never committed. Making git bidirectional would need
   conflict handling this chart shouldn't own.
 - **Multiple replicas or HA.** See "One replica, always".
+- **Managing the vault list from a browser.** Vaults are declared in values and rendered as one
+  container each, so the repo describes what the pod syncs. A browser UI may log in and link the
+  vaults values declare, but it doesn't add or remove them. Considered and declined in
+  [`proposals/web-ui.md`](proposals/web-ui.md) (tier 3, OPS-1266).

@@ -141,7 +141,7 @@ ${body}
 `;
 }
 
-// keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal }) }
+// keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal, refreshedTotal }) }
 // loggedIn: whether the token file exists (wizard mode only).
 export function renderPage(cfg, keeperState, now = Math.floor(Date.now() / 1000), { loggedIn = false } = {}) {
   const vaults = cfg.vaults.map((v) => `<section><h2>${html(v.name)}</h2>`

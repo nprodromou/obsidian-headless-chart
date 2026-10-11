@@ -52,7 +52,7 @@ vaults:
 
 ```bash
 helm install obsidian oci://ghcr.io/nprodromou/charts/obsidian-headless-sync \
-  --version 0.1.0 -f values.yaml
+  --version 0.1.1 -f values.yaml
 ```
 
 **3. Log in and link.** Get the setup code the keeper prints on start, open the page, and enter it:
@@ -109,7 +109,7 @@ vaults:
 
 ```bash
 helm install obsidian oci://ghcr.io/nprodromou/charts/obsidian-headless-sync \
-  --version 0.1.0 -f values.yaml
+  --version 0.1.1 -f values.yaml
 ```
 
 Watch the first start with `kubectl logs deploy/obsidian-obsidian-headless-sync -c prepare -f`.
@@ -209,6 +209,7 @@ With `metrics.serviceMonitor.enabled` and `metrics.prometheusRule.enabled`, you 
 | `ObsidianHeadlessDown` | `/metrics` has not been scraped for 15 minutes |
 | `ObsidianVaultSyncStale` | a vault's client has not finished a sync pass for `syncStaleSeconds` |
 | `ObsidianVaultGitNotOK` | a git-backed vault has been in a non-OK state for `gitNotOkFor` |
+| `ObsidianVaultGitBehind` | a git-backed vault is still behind its remote after `gitBehindPasses` keeper passes |
 | `ObsidianKeeperStalled` | no keeper pass has finished in three intervals |
 
 The pod restarts a sync container whose client goes silent for `sync.livenessStaleSeconds`. An

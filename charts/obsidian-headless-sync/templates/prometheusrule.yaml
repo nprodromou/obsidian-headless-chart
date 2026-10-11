@@ -39,6 +39,14 @@ spec:
           annotations:
             summary: Obsidian vault {{`{{ $labels.vault }}`}} is not following git ({{`{{ $labels.state }}`}})
             description: The keeper cannot fast-forward vault {{`{{ $labels.vault }}`}}, so devices see stale content. Its VAULT-STATUS note says why and how to fix it.
+        - alert: ObsidianVaultGitBehind
+          expr: max by (namespace, vault) (obsidian_headless_git_behind_commits{ {{- $sel -}} }) > 0
+          for: {{ mul .Values.git.intervalSeconds $r.gitBehindPasses }}s
+          labels:
+            severity: {{ $r.severity }}
+          annotations:
+            summary: Obsidian vault {{`{{ $labels.vault }}`}} is {{`{{ $value }}`}} commit(s) behind git
+            description: A keeper pass that fast-forwards leaves the vault 0 behind, so behind for {{ $r.gitBehindPasses }} passes means nothing new from git is reaching devices, whatever the keeper's state says.
         - alert: ObsidianKeeperStalled
           expr: time() - obsidian_headless_keeper_last_pass_timestamp_seconds{ {{- $sel -}} } > {{ add (mul .Values.git.intervalSeconds 3) 60 }}
           for: 10m

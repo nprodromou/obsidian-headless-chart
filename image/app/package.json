@@ -1,6 +1,6 @@
 {
   "name": "obsidian-headless-sync-app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Init, sync supervisor and git keeper for the obsidian-headless-sync Helm chart.",
   "type": "module",

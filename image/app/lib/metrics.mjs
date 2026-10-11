@@ -22,7 +22,7 @@ class Out {
   text() { return `${this.lines.join('\n')}\n`; }
 }
 
-// keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal }) }
+// keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal, refreshedTotal }) }
 export function renderMetrics(cfg, keeperState) {
   const o = new Out();
   o.metric('keeper_started_timestamp_seconds', 'When the keeper process started.', 'gauge',
@@ -41,6 +41,8 @@ export function renderMetrics(cfg, keeperState) {
     gitVaults.map(([vault, v]) => [{ vault }, v.result.untracked.length]));
   o.metric('git_discarded_files_total', 'Tracked files restored from git because they matched discardLocalChanges.', 'counter',
     gitVaults.map(([vault, v]) => [{ vault }, v.discardedTotal]));
+  o.metric('git_refreshed_files_total', 'Clean-filtered files (LFS) re-staged because only their index stat data was stale.', 'counter',
+    gitVaults.map(([vault, v]) => [{ vault }, v.refreshedTotal ?? 0]));
 
   const sync = cfg.vaults.map((v) => [v.name, readSyncStatus(syncStatusPath(cfg, v.name))]).filter(([, s]) => s);
   o.metric('sync_started_timestamp_seconds', 'When the sync client for the vault last started.', 'gauge',

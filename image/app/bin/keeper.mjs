@@ -56,11 +56,13 @@ function pass() {
       result: r,
       stateSince: prev && prev.result.state === r.state ? prev.stateSince : now(),
       discardedTotal: (prev ? prev.discardedTotal : 0) + (dryRun ? 0 : r.discarded.length),
+      refreshedTotal: (prev ? prev.refreshedTotal : 0) + (dryRun ? 0 : r.refreshed.length),
     });
     log(C, `${r.state.padEnd(12)} ${vault.name} branch=${r.branch || '-'} head=${r.head || '-'} `
       + `behind=${r.behind ?? '-'} untracked=${r.untracked.length} discarded=${r.discarded.length}`
       + `${r.detail ? ` (${r.detail})` : ''}`);
     for (const f of r.discarded) log(C, `${vault.name}: restored from git: ${f}`);
+    for (const f of r.refreshed) log(C, `${vault.name}: refreshed stale index stat: ${f}`);
     if (!dryRun) {
       const warn = writeStatus(r, cfg);
       if (warn) log(C, `${vault.name}: WARN: ${warn}`);

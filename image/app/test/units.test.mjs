@@ -61,13 +61,14 @@ test('metrics exposition', () => {
     startedAt: 50,
     lastPassAt: 60,
     vaults: new Map([['notes', {
-      result: { state: 'DIRTY', behind: 3, untracked: ['x'] }, stateSince: 55, discardedTotal: 2,
+      result: { state: 'DIRTY', behind: 3, untracked: ['x'] }, stateSince: 55, discardedTotal: 2, refreshedTotal: 1,
     }]]),
   });
   assert.match(text, /obsidian_headless_git_state\{vault="notes",state="DIRTY"\} 1/);
   assert.match(text, /obsidian_headless_git_state\{vault="notes",state="OK"\} 0/);
   assert.match(text, /obsidian_headless_git_behind_commits\{vault="notes"\} 3/);
   assert.match(text, /obsidian_headless_git_discarded_files_total\{vault="notes"\} 2/);
+  assert.match(text, /obsidian_headless_git_refreshed_files_total\{vault="notes"\} 1/);
   // Never reported "Fully synced" yet: falls back to the start time.
   assert.match(text, /obsidian_headless_sync_last_fully_synced_timestamp_seconds\{vault="plain"\} 100/);
   assert.doesNotMatch(text, /sync_started_timestamp_seconds\{vault="notes"\}/);

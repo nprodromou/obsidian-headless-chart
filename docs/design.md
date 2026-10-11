@@ -156,6 +156,26 @@ Only tracked files are restored. An untracked file (a note created on a phone, o
 copy) is reported but never deleted, because a deleted untracked file can't be recovered from
 git.
 
+### Git LFS and stale index stat
+
+With `lfs` on, checkouts skip the smudge filter and `git lfs pull` writes the real content
+afterwards. The index can be left holding the pointer's stat data (its size, mostly) while the
+worktree holds the real file. git doesn't re-hash a file whose size differs from the index entry,
+so `status` lists it as modified for good, `git diff` shows nothing, and
+`git update-index --refresh` can't clear it. Before this was handled, a vault sat `DIRTY` for six
+days on two such files while its client logged "Fully synced" every cycle (OPS-1390).
+
+So before deciding a vault is dirty, the keeper looks at each changed file that has a `filter`
+attribute. If the clean filter's output hashes to the blob already in the index, with the same
+mode, it runs `git add` on that file. The blob doesn't change, only the stat data, so this is not a
+commit or a content change. Any other difference still counts as dirty. The refresh runs before
+`discardLocalChanges`, because restoring an LFS file from `HEAD` with smudge skipped would replace
+its content with a pointer. `obsidian_headless_git_refreshed_files_total` counts the refreshes.
+
+`ObsidianVaultGitBehind` is the backstop for the next way this goes wrong. It doesn't depend on
+the keeper's state: a pass that fast-forwards leaves the vault 0 commits behind, so a vault still
+behind after `gitBehindPasses` passes is not receiving git, whatever the reason.
+
 ### No upload-only mode
 
 The ideal mode for a git-backed vault would be upload-only. The client offers `bidirectional`,

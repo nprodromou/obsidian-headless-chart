@@ -155,6 +155,8 @@ metrics:
     severity: warning
     # A git-backed vault in any state other than OK for this long.
     gitNotOkFor: 1h
+    # A git-backed vault still behind its remote after this many keeper passes.
+    gitBehindPasses: 3
     # No "Fully synced" from a vault's client for this many seconds.
     syncStaleSeconds: 1800
 

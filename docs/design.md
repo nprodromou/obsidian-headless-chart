@@ -205,7 +205,8 @@ failure mode its own signal:
 | Client process exits | Container exits with the client's code; Kubernetes restarts it |
 | Client hangs silently | Liveness probe: no output for `sync.livenessStaleSeconds`. An idle client logs "Fully synced" every 30 seconds, so silence means stuck |
 | Client runs but never converges | `ObsidianVaultSyncStale`: no "Fully synced" for `syncStaleSeconds` |
-| Keeper loop wedges | `/healthz` fails after three intervals; liveness restarts it. `ObsidianKeeperStalled` |
+| Git remote hangs | Fetch times out; the pass reports `FETCH-FAILED` and `ObsidianVaultGitNotOK` fires after `gitNotOkFor` |
+| Keeper loop wedges | `/healthz` fails after three intervals with no pass started and no vault finished; liveness restarts it. `ObsidianKeeperStalled` |
 | Vault can't follow git | `ObsidianVaultGitNotOK` after `gitNotOkFor`; status note on devices |
 | Vault never linked (wizard mode) | `obsidian_headless_sync_linked` is 0; `ObsidianVaultSyncStale` after `syncStaleSeconds` |
 | Whole pod gone | `ObsidianHeadlessDown` (`up == 0` or absent) |
@@ -241,8 +242,22 @@ The keeper serves an HTML status page on its own listener, separate from `/metri
   it is the operator's.
 
 Keeper results come from the same object that renders `VAULT-STATUS.md`, including `fixHint()`,
-so the page and the note can't disagree. The keeper is single-threaded and git calls are
-synchronous, so the page doesn't answer during a pass; a refreshing status page tolerates that.
+so the page and the note can't disagree. The keeper is single-threaded, so every git call in a
+pass is an async child with a timeout and `/healthz`, `/metrics` and the page keep answering while
+one runs. `fetch` and `git lfs pull` get `min(300s, intervalSeconds)`, local calls 120s; a timed-out
+child is killed with its whole process group, since `git-remote-https` or `ssh` would otherwise
+outlive git. A hung fetch therefore costs one `FETCH-FAILED` pass rather than the container. When
+calls were synchronous, a fetch stuck on a slow connect (133s on 2026-10-15) blocked `/healthz`
+past the 1s probe timeout; liveness killed the keeper 13 times in one afternoon, and each restart
+reset the metrics behind `ObsidianVaultGitBehind` (OPS-1431). Passes never overlap: the next is
+scheduled when the last one finishes.
+
+Vaults run one after another, so a remote outage that hangs every fetch makes a pass take up to
+N × the network timeout. `/healthz` and `ObsidianKeeperStalled` therefore key on progress, not on a
+finished pass: `keeper_last_progress_timestamp_seconds` moves when a pass starts and when each vault
+finishes. One vault's fetch and `lfs pull` are each bounded by one interval, inside the three
+intervals of slack, so a pass still working through hung fetches stays healthy and a wedged one
+still goes stale. `keeper_last_pass_timestamp_seconds` keeps meaning a finished pass.
 
 ## The setup wizard
 

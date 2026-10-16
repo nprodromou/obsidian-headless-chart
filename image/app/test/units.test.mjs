@@ -8,6 +8,7 @@ import { normalizeConfig, vaultPassword } from '../lib/config.mjs';
 import { formatTime, renderStatus } from '../lib/status.mjs';
 import { renderMetrics } from '../lib/metrics.mjs';
 import { syncStatusPath, writeSyncStatus } from '../lib/syncstatus.mjs';
+import { runAsync } from '../lib/proc.mjs';
 
 test('glob semantics', () => {
   assert.ok(matchesAny('docs/briefs/today.md', ['docs/briefs/**']));
@@ -60,6 +61,7 @@ test('metrics exposition', () => {
   const text = renderMetrics(cfg, {
     startedAt: 50,
     lastPassAt: 60,
+    lastProgressAt: 70,
     vaults: new Map([['notes', {
       result: { state: 'DIRTY', behind: 3, untracked: ['x'] }, stateSince: 55, discardedTotal: 2, refreshedTotal: 1,
     }]]),
@@ -67,9 +69,28 @@ test('metrics exposition', () => {
   assert.match(text, /obsidian_headless_git_state\{vault="notes",state="DIRTY"\} 1/);
   assert.match(text, /obsidian_headless_git_state\{vault="notes",state="OK"\} 0/);
   assert.match(text, /obsidian_headless_git_behind_commits\{vault="notes"\} 3/);
+  assert.match(text, /obsidian_headless_keeper_last_pass_timestamp_seconds 60/);
+  assert.match(text, /obsidian_headless_keeper_last_progress_timestamp_seconds 70/);
   assert.match(text, /obsidian_headless_git_discarded_files_total\{vault="notes"\} 2/);
   assert.match(text, /obsidian_headless_git_refreshed_files_total\{vault="notes"\} 1/);
   // Never reported "Fully synced" yet: falls back to the start time.
   assert.match(text, /obsidian_headless_sync_last_fully_synced_timestamp_seconds\{vault="plain"\} 100/);
   assert.doesNotMatch(text, /sync_started_timestamp_seconds\{vault="notes"\}/);
+});
+
+test('runAsync timeout kills the whole process group, not just the child', async () => {
+  // The background sleep holds stdout open; killing only sh would leave the
+  // call waiting on it, the way git-remote-https outlives a killed git fetch.
+  const started = Date.now();
+  const res = await runAsync('sh', ['-c', 'sleep 30 & wait'], { timeoutMs: 200 });
+  assert.equal(res.ok, false);
+  assert.equal(res.timedOut, true);
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
+});
+
+test('runAsync fails output past maxBuffer instead of truncating it', async () => {
+  const res = await runAsync('sh', ['-c', 'head -c 2048 /dev/zero'], { maxBuffer: 1024 });
+  assert.equal(res.ok, false);
+  assert.match(res.error.message, /exceeded 1024 bytes/);
+  assert.equal((await runAsync('sh', ['-c', 'head -c 2048 /dev/zero'], { maxBuffer: 4096 })).ok, true);
 });

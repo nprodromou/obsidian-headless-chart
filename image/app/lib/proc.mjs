@@ -24,13 +24,18 @@ export function run(cmd, args, opts = {}) {
 // Same result shape as run(), plus timedOut. stdin always gets `input` (empty by
 // default) and EOF, so a child that prompts never waits on a terminal. Env keys
 // set to undefined in opts.env are removed from the child's environment.
-export function runAsync(cmd, args, { input = '', timeoutMs = 60000, env = {}, cwd } = {}) {
+//
+// The child leads its own process group, and a timeout kills the whole group:
+// `git fetch` hands the network to git-remote-https or ssh, which would keep
+// hanging (and holding the output pipes open) after git itself was killed.
+// Output past maxBuffer fails the call rather than returning a truncated list.
+export function runAsync(cmd, args, { input = '', timeoutMs = 60000, maxBuffer = 1024 * 1024, env = {}, cwd } = {}) {
   const childEnv = { ...process.env, ...env };
   for (const [k, v] of Object.entries(childEnv)) if (v === undefined) delete childEnv[k];
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { cwd, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(cmd, args, { cwd, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     } catch (error) {
       resolve({ ok: false, status: null, stdout: '', stderr: '', error, timedOut: false });
       return;
@@ -38,30 +43,48 @@ export function runAsync(cmd, args, { input = '', timeoutMs = 60000, env = {}, c
     const out = [];
     const err = [];
     let size = 0;
+    let overflow = false;
     const collect = (buf) => (chunk) => {
       size += chunk.length;
-      if (size <= 1024 * 1024) buf.push(chunk);
+      if (size <= maxBuffer) buf.push(chunk);
+      else overflow = true;
     };
     child.stdout.on('data', collect(out));
     child.stderr.on('data', collect(err));
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, timeoutMs);
     let error;
-    child.on('error', (e) => { error = e; });
-    child.on('close', (status) => {
+    let done = false;
+    let grace;
+    const finish = (status) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
+      clearTimeout(grace);
       resolve({
-        ok: status === 0 && !timedOut,
+        ok: status === 0 && !timedOut && !overflow,
         status,
         stdout: Buffer.concat(out).toString('utf8'),
         stderr: Buffer.concat(err).toString('utf8'),
-        error,
+        error: error || (overflow ? new Error(`output exceeded ${maxBuffer} bytes`) : undefined),
         timedOut,
       });
-    });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+      // Something outside the group may still hold a pipe; don't wait on it.
+      grace = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(null);
+      }, 5000);
+    }, timeoutMs);
+    child.on('error', (e) => { error = e; });
+    child.on('close', (status) => finish(status));
     child.stdin.on('error', () => {});
     child.stdin.end(input);
   });

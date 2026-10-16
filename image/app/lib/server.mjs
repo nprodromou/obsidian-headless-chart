@@ -11,10 +11,13 @@ import http from 'node:http';
 import { renderMetrics } from './metrics.mjs';
 import { hostAllowed, renderPage, SECURITY_HEADERS } from './ui.mjs';
 
-// Healthy while a pass has finished recently. Three intervals of slack covers
-// one slow fetch without flapping; a wedged loop still gets restarted.
+// Healthy while the keeper has made progress recently: started a pass or
+// finished a vault (lib/pass.mjs). A single vault's network calls are bounded
+// by one interval each, inside the three intervals of slack, so a pass that
+// is still advancing through several hung fetches stays up; a wedged loop
+// still gets restarted.
 export function isHealthy(cfg, keeperState, now = Math.floor(Date.now() / 1000)) {
-  const last = keeperState.lastPassAt || keeperState.startedAt;
+  const last = Math.max(keeperState.lastProgressAt || 0, keeperState.lastPassAt || 0) || keeperState.startedAt;
   return now - last <= cfg.intervalSeconds * 3 + 60;
 }
 

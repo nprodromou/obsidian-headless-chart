@@ -6,21 +6,49 @@
 // restore from HEAD of changed tracked files that match discardLocalChanges.
 // It never commits, checks out another branch, resets, stashes or cleans.
 // Anything unexpected is reported and left for a human.
+//
+// Every git call is async with a timeout. The same process serves /healthz, and
+// a synchronous fetch stuck on a slow connect stopped it answering until the
+// liveness probe killed the container (OPS-1431).
 
 import fs from 'node:fs';
-import { run, firstLine } from './proc.mjs';
+import { run, runAsync, firstLine } from './proc.mjs';
 import { matchesAny } from './glob.mjs';
-import { usesLfs } from './gitenv.mjs';
 
 export const STATES = ['OK', 'DIRTY', 'OFF-BRANCH', 'DIVERGED', 'FF-FAILED', 'FETCH-FAILED', 'NOT-A-REPO'];
 
+// Fetch and `lfs pull` talk to the remote; everything else is local. A network
+// call is bounded by one interval, well inside the three intervals /healthz
+// allows between vaults (lib/pass.mjs), so a hung connect costs one
+// FETCH-FAILED pass instead of the container.
+export const LOCAL_TIMEOUT_MS = 120 * 1000;
+export function networkTimeoutMs(cfg) {
+  return Math.min(300, cfg.intervalSeconds) * 1000;
+}
+
+const MAX_BUFFER = 64 * 1024 * 1024;
+
+function git(dir, args, opts = {}) {
+  return runAsync('git', ['-C', dir, ...args], { timeoutMs: LOCAL_TIMEOUT_MS, maxBuffer: MAX_BUFFER, ...opts });
+}
+
 function gitIn(dir) {
-  return (...args) => run('git', ['-C', dir, ...args]);
+  return (...args) => git(dir, args);
+}
+
+// First line of a failed call's output, or that it timed out.
+function why(res) {
+  if (res.timedOut) return 'timed out';
+  return firstLine(res.stderr || res.stdout) || (res.error ? res.error.message : `exit ${res.status}`);
+}
+
+async function usesLfs(dir) {
+  return (await git(dir, ['grep', '-q', 'filter=lfs', 'HEAD', '--', '.gitattributes', '*/.gitattributes'])).ok;
 }
 
 // Tracked files with worktree or index changes, from `status --porcelain -z`.
-export function changedTrackedFiles(dir) {
-  const res = run('git', ['-C', dir, 'status', '--porcelain=v1', '-z', '--untracked-files=no']);
+export async function changedTrackedFiles(dir) {
+  const res = await git(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=no']);
   if (!res.ok) return [];
   const parts = res.stdout.split('\0');
   const files = [];
@@ -42,10 +70,10 @@ export function changedTrackedFiles(dir) {
 // modified forever, and `update-index --refresh` can't clear it. These are the
 // changed files that have a filter attribute and whose clean output hashes to
 // the index blob with the same mode: no content change at all.
-export function statOnlyFilteredFiles(dir, files) {
+export async function statOnlyFilteredFiles(dir, files) {
   const candidates = files.filter((f) => !f.includes('\n'));
   if (!candidates.length) return [];
-  const attrs = run('git', ['-C', dir, 'check-attr', '-z', '--stdin', 'filter'],
+  const attrs = await git(dir, ['check-attr', '-z', '--stdin', 'filter'],
     { input: candidates.join('\0') });
   if (!attrs.ok) return [];
   const a = attrs.stdout.split('\0');
@@ -62,7 +90,7 @@ export function statOnlyFilteredFiles(dir, files) {
   });
   if (!onDisk.length) return [];
 
-  const staged = run('git', ['-C', dir, 'ls-files', '-s', '-z', '--', ...onDisk.map((f) => `:(literal)${f}`)]);
+  const staged = await git(dir, ['ls-files', '-s', '-z', '--', ...onDisk.map((f) => `:(literal)${f}`)]);
   if (!staged.ok) return [];
   const index = new Map();
   for (const entry of staged.stdout.split('\0').filter(Boolean)) {
@@ -72,7 +100,7 @@ export function statOnlyFilteredFiles(dir, files) {
   }
   const paths = onDisk.filter((f) => index.has(f));
   if (!paths.length) return [];
-  const hashes = run('git', ['-C', dir, 'hash-object', '--stdin-paths'], { input: `${paths.join('\n')}\n` });
+  const hashes = await git(dir, ['hash-object', '--stdin-paths'], { input: `${paths.join('\n')}\n` });
   if (!hashes.ok) return [];
   const shas = hashes.stdout.trim().split('\n');
   return paths.filter((f, i) => {
@@ -82,16 +110,16 @@ export function statOnlyFilteredFiles(dir, files) {
   });
 }
 
-export function untrackedFiles(dir, excludes) {
+export async function untrackedFiles(dir, excludes) {
   const pathspec = ['.', ...excludes.filter(Boolean).map((e) => `:(exclude)${e}`)];
-  const res = run('git', ['-C', dir, 'ls-files', '--others', '--exclude-standard', '-z', '--', ...pathspec]);
+  const res = await git(dir, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...pathspec]);
   if (!res.ok) return [];
   return res.stdout.split('\0').filter(Boolean);
 }
 
-export function processVault(vault, cfg, { dryRun = false } = {}) {
+export async function processVault(vault, cfg, { dryRun = false, fetchTimeoutMs = networkTimeoutMs(cfg) } = {}) {
   const dir = vault.dir;
-  const git = gitIn(dir);
+  const g = gitIn(dir);
   const r = {
     vault: vault.name,
     dir,
@@ -113,53 +141,57 @@ export function processVault(vault, cfg, { dryRun = false } = {}) {
   if (!fs.existsSync(dir)) {
     return { ...r, state: 'NOT-A-REPO', detail: 'directory does not exist' };
   }
-  const top = git('rev-parse', '--show-toplevel');
+  const top = await g('rev-parse', '--show-toplevel');
   if (!top.ok || fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(dir)) {
     return { ...r, state: 'NOT-A-REPO', detail: 'not the top level of a git clone' };
   }
 
   // b. Fetch. On failure keep going so the report reflects the last known state.
-  const fetch = git('fetch', 'origin', '--prune', '--quiet');
-  if (!fetch.ok) r.detail = `fetch failed: ${firstLine(fetch.stderr || fetch.stdout)}`;
+  const fetch = await git(dir, ['fetch', 'origin', '--prune', '--quiet'], { timeoutMs: fetchTimeoutMs });
+  if (!fetch.ok) {
+    r.detail = fetch.timedOut
+      ? `fetch failed: timed out after ${Math.round(fetchTimeoutMs / 1000)}s`
+      : `fetch failed: ${why(fetch)}`;
+  }
 
   // c. Default branch: explicit config, then origin/HEAD, then main.
   if (!vault.git.branch) {
-    const sym = git('symbolic-ref', '--short', 'refs/remotes/origin/HEAD');
+    const sym = await g('symbolic-ref', '--short', 'refs/remotes/origin/HEAD');
     if (sym.ok && sym.stdout.trim()) r.defaultBranch = sym.stdout.trim().replace(/^origin\//, '');
   }
   const upstream = `refs/remotes/origin/${r.defaultBranch}`;
-  const haveUpstream = git('rev-parse', '--verify', '--quiet', upstream).ok;
+  const haveUpstream = (await g('rev-parse', '--verify', '--quiet', upstream)).ok;
 
-  const sym = git('symbolic-ref', '--short', '-q', 'HEAD');
+  const sym = await g('symbolic-ref', '--short', '-q', 'HEAD');
   r.branch = sym.ok ? sym.stdout.trim() : '(detached HEAD)';
 
-  r.untracked = untrackedFiles(dir, [vault.configDir, cfg.statusFile]);
+  r.untracked = await untrackedFiles(dir, [vault.configDir, cfg.statusFile]);
 
   if (!fetch.ok) {
     r.state = 'FETCH-FAILED';
   } else if (r.branch !== r.defaultBranch) {
     r.state = 'OFF-BRANCH';
   } else {
-    r.dirty = changedTrackedFiles(dir);
+    r.dirty = await changedTrackedFiles(dir);
 
     // d. Re-stage files whose only change is stale index stat data. The clean
     // filter gives back the blob already in the index, so `add` changes no
     // content; it records the real file's stat so status stops listing it.
     // This runs before the restore, which would replace LFS content with a
     // pointer.
-    const statOnly = statOnlyFilteredFiles(dir, r.dirty);
+    const statOnly = await statOnlyFilteredFiles(dir, r.dirty);
     if (statOnly.length) {
       if (dryRun) {
         r.refreshed = statOnly;
         r.dirty = r.dirty.filter((f) => !statOnly.includes(f));
       } else {
-        const res = run('git', ['-C', dir, 'add', '--pathspec-from-file=-', '--pathspec-file-nul'],
+        const res = await git(dir, ['add', '--pathspec-from-file=-', '--pathspec-file-nul'],
           { input: statOnly.map((f) => `:(literal)${f}`).join('\0') });
         if (res.ok) {
           r.refreshed = statOnly;
-          r.dirty = changedTrackedFiles(dir);
+          r.dirty = await changedTrackedFiles(dir);
         } else {
-          r.detail = `index refresh failed: ${firstLine(res.stderr)}`;
+          r.detail = `index refresh failed: ${why(res)}`;
         }
       }
     }
@@ -173,13 +205,13 @@ export function processVault(vault, cfg, { dryRun = false } = {}) {
         r.discarded = discard;
         r.dirty = r.dirty.filter((f) => !discard.includes(f));
       } else {
-        const res = run('git', ['-C', dir, 'restore', '--source=HEAD', '--staged', '--worktree',
+        const res = await git(dir, ['restore', '--source=HEAD', '--staged', '--worktree',
           '--pathspec-from-file=-', '--pathspec-file-nul'], { input: discard.join('\0') });
         if (res.ok) {
           r.discarded = discard;
-          r.dirty = changedTrackedFiles(dir);
+          r.dirty = await changedTrackedFiles(dir);
         } else {
-          r.detail = `restore failed: ${firstLine(res.stderr)}`;
+          r.detail = `restore failed: ${why(res)}`;
         }
       }
     }
@@ -190,37 +222,37 @@ export function processVault(vault, cfg, { dryRun = false } = {}) {
       r.state = 'FF-FAILED';
       r.detail = `origin/${r.defaultBranch} not found`;
     } else {
-      const ahead = Number(git('rev-list', '--count', `${upstream}..HEAD`).stdout.trim() || 0);
+      const ahead = Number((await g('rev-list', '--count', `${upstream}..HEAD`)).stdout.trim() || 0);
       if (ahead > 0) {
         r.state = 'DIVERGED';
         r.detail = `${ahead} local commit(s) not on origin/${r.defaultBranch}`;
       } else if (dryRun) {
         r.state = 'OK';
-        const n = git('rev-list', '--count', `HEAD..${upstream}`).stdout.trim();
+        const n = (await g('rev-list', '--count', `HEAD..${upstream}`)).stdout.trim();
         r.detail = `dry-run: would fast-forward ${n} commit(s)`;
       } else {
-        const merge = git('merge', '--ff-only', '--quiet', upstream);
+        const merge = await g('merge', '--ff-only', '--quiet', upstream);
         if (merge.ok) {
           r.state = 'OK';
-          if (cfg.lfs && usesLfs(dir)) {
-            const lfs = git('lfs', 'pull');
-            if (!lfs.ok) r.detail = 'git lfs pull failed (non-fatal)';
+          if (cfg.lfs && await usesLfs(dir)) {
+            const lfs = await git(dir, ['lfs', 'pull'], { timeoutMs: fetchTimeoutMs });
+            if (!lfs.ok) r.detail = `git lfs pull failed (non-fatal): ${why(lfs)}`;
           }
         } else {
           r.state = 'FF-FAILED';
-          r.detail = `merge --ff-only failed: ${firstLine(merge.stderr || merge.stdout)}`;
+          r.detail = `merge --ff-only failed: ${why(merge)}`;
         }
       }
     }
   }
 
   // Report HEAD and distance from origin after whatever ran above.
-  if (git('rev-parse', '--verify', '--quiet', 'HEAD').ok) {
-    const info = git('log', '-1', '--format=%h%x00%s%x00%ct').stdout.trim().split('\0');
+  if ((await g('rev-parse', '--verify', '--quiet', 'HEAD')).ok) {
+    const info = (await g('log', '-1', '--format=%h%x00%s%x00%ct')).stdout.trim().split('\0');
     r.head = info[0] || '';
     r.subject = info[1] || '';
     r.commitEpoch = Number(info[2] || 0);
-    if (haveUpstream) r.behind = Number(git('rev-list', '--count', `HEAD..${upstream}`).stdout.trim() || 0);
+    if (haveUpstream) r.behind = Number((await g('rev-list', '--count', `HEAD..${upstream}`)).stdout.trim() || 0);
   }
   return r;
 }

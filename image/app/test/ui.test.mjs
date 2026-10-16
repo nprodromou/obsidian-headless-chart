@@ -113,18 +113,18 @@ test('page renders every keeper state, with the fix command for non-OK ones', ()
   }
 });
 
-test('page escapes file names, log lines, subjects and details from a real clone', () => {
+test('page escapes file names, log lines, subjects and details from a real clone', async () => {
   const f = makeFixture();
   fs.writeFileSync(path.join(f.vaultDir, XSS), 'x');
   fs.writeFileSync(path.join(f.vaultDir, 'README.md'), 'edited\n');
   git(f.upstream, 'commit', '--quiet', '--allow-empty', '-m', '<script>alert(2)</script>');
   git(f.upstream, 'push', '--quiet', 'origin', 'HEAD:main');
   git(f.vaultDir, 'stash', '--quiet');
-  const r = processVault(f.vault, f.cfg);
+  const r = await processVault(f.vault, f.cfg);
   assert.equal(r.state, 'OK');
   assert.deepEqual(r.untracked, [XSS]);
   fs.writeFileSync(path.join(f.vaultDir, 'README.md'), 'edited again\n');
-  const dirty = processVault(f.vault, f.cfg);
+  const dirty = await processVault(f.vault, f.cfg);
   assert.equal(dirty.state, 'DIRTY');
   writeSyncStatus(syncStatusPath(f.cfg, 'notes'), { startedAt: NOW, lastOutputAt: NOW, lastFullySyncedAt: 0, lastLine: `Uploading ${XSS}` });
 

@@ -13,8 +13,7 @@
 import { createRequire } from 'node:module';
 import { loadConfig } from '../lib/config.mjs';
 import { setupGitEnv } from '../lib/gitenv.mjs';
-import { processVault } from '../lib/keeper.mjs';
-import { writeStatus } from '../lib/status.mjs';
+import { runPass } from '../lib/pass.mjs';
 import { createMetricsServer, createUiServer } from '../lib/server.mjs';
 import { createWizard } from '../lib/wizard.mjs';
 import { hasAuthToken, obAsync } from '../lib/ob.mjs';
@@ -39,36 +38,11 @@ try {
 }
 
 const now = () => Math.floor(Date.now() / 1000);
-const state = { startedAt: now(), lastPassAt: 0, vaults: new Map() };
+const state = { startedAt: now(), lastPassAt: 0, lastProgressAt: 0, vaults: new Map() };
 const gitVaults = cfg.vaults.filter((v) => v.git);
 
-async function pass() {
-  for (const vault of gitVaults) {
-    let r;
-    try {
-      r = await processVault(vault, cfg, { dryRun });
-    } catch (err) {
-      log(C, `${vault.name}: keeper error: ${err.message}`);
-      continue;
-    }
-    const prev = state.vaults.get(vault.name);
-    state.vaults.set(vault.name, {
-      result: r,
-      stateSince: prev && prev.result.state === r.state ? prev.stateSince : now(),
-      discardedTotal: (prev ? prev.discardedTotal : 0) + (dryRun ? 0 : r.discarded.length),
-      refreshedTotal: (prev ? prev.refreshedTotal : 0) + (dryRun ? 0 : r.refreshed.length),
-    });
-    log(C, `${r.state.padEnd(12)} ${vault.name} branch=${r.branch || '-'} head=${r.head || '-'} `
-      + `behind=${r.behind ?? '-'} untracked=${r.untracked.length} discarded=${r.discarded.length}`
-      + `${r.detail ? ` (${r.detail})` : ''}`);
-    for (const f of r.discarded) log(C, `${vault.name}: restored from git: ${f}`);
-    for (const f of r.refreshed) log(C, `${vault.name}: refreshed stale index stat: ${f}`);
-    if (!dryRun) {
-      const warn = writeStatus(r, cfg);
-      if (warn) log(C, `${vault.name}: WARN: ${warn}`);
-    }
-  }
-  state.lastPassAt = now();
+function pass() {
+  return runPass(gitVaults, cfg, state, { dryRun, now });
 }
 
 if (once) {

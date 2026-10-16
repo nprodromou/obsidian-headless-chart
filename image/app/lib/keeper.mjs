@@ -18,8 +18,9 @@ import { matchesAny } from './glob.mjs';
 export const STATES = ['OK', 'DIRTY', 'OFF-BRANCH', 'DIVERGED', 'FF-FAILED', 'FETCH-FAILED', 'NOT-A-REPO'];
 
 // Fetch and `lfs pull` talk to the remote; everything else is local. A network
-// call is bounded well inside the three intervals /healthz allows a pass, so a
-// hung connect costs one FETCH-FAILED pass instead of the container.
+// call is bounded by one interval, well inside the three intervals /healthz
+// allows between vaults (lib/pass.mjs), so a hung connect costs one
+// FETCH-FAILED pass instead of the container.
 export const LOCAL_TIMEOUT_MS = 120 * 1000;
 export function networkTimeoutMs(cfg) {
   return Math.min(300, cfg.intervalSeconds) * 1000;

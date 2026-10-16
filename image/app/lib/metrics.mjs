@@ -22,13 +22,15 @@ class Out {
   text() { return `${this.lines.join('\n')}\n`; }
 }
 
-// keeperState: { startedAt, lastPassAt, vaults: Map(name -> { result, stateSince, discardedTotal, refreshedTotal }) }
+// keeperState: { startedAt, lastPassAt, lastProgressAt, vaults: Map(name -> { result, stateSince, discardedTotal, refreshedTotal }) }
 export function renderMetrics(cfg, keeperState) {
   const o = new Out();
   o.metric('keeper_started_timestamp_seconds', 'When the keeper process started.', 'gauge',
     [[{}, keeperState.startedAt]]);
   o.metric('keeper_last_pass_timestamp_seconds', 'When the keeper last finished a pass over all git vaults.', 'gauge',
     keeperState.lastPassAt ? [[{}, keeperState.lastPassAt]] : []);
+  o.metric('keeper_last_progress_timestamp_seconds', 'When the keeper last started a pass or finished a vault.', 'gauge',
+    keeperState.lastProgressAt ? [[{}, keeperState.lastProgressAt]] : []);
 
   const gitVaults = [...keeperState.vaults.entries()];
   o.metric('git_state', 'Current keeper state of a git-backed vault (1 for the active state).', 'gauge',

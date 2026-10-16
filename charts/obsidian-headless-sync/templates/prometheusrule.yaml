@@ -48,12 +48,12 @@ spec:
             summary: Obsidian vault {{`{{ $labels.vault }}`}} is {{`{{ $value }}`}} commit(s) behind git
             description: A keeper pass that fast-forwards leaves the vault 0 behind, so behind for {{ $r.gitBehindPasses }} passes means nothing new from git is reaching devices, whatever the keeper's state says.
         - alert: ObsidianKeeperStalled
-          expr: time() - obsidian_headless_keeper_last_pass_timestamp_seconds{ {{- $sel -}} } > {{ add (mul .Values.git.intervalSeconds 3) 60 }}
+          expr: time() - obsidian_headless_keeper_last_progress_timestamp_seconds{ {{- $sel -}} } > {{ add (mul .Values.git.intervalSeconds 3) 60 }}
           for: 10m
           labels:
             severity: {{ $r.severity }}
           annotations:
             summary: The Obsidian vault keeper has stopped fast-forwarding
-            description: No keeper pass has finished in over three intervals.
+            description: The keeper has not started a pass or finished a vault in over three intervals.
         {{- end }}
 {{- end }}

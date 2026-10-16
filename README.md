@@ -210,7 +210,7 @@ With `metrics.serviceMonitor.enabled` and `metrics.prometheusRule.enabled`, you 
 | `ObsidianVaultSyncStale` | a vault's client has not finished a sync pass for `syncStaleSeconds` |
 | `ObsidianVaultGitNotOK` | a git-backed vault has been in a non-OK state for `gitNotOkFor` |
 | `ObsidianVaultGitBehind` | a git-backed vault is still behind its remote after `gitBehindPasses` keeper passes |
-| `ObsidianKeeperStalled` | no keeper pass has finished in three intervals |
+| `ObsidianKeeperStalled` | the keeper has not started a pass or finished a vault in three intervals |
 
 The pod restarts a sync container whose client goes silent for `sync.livenessStaleSeconds`. An
 idle client logs every 30 seconds. It also restarts the keeper when its loop stops completing.

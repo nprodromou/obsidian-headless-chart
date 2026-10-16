@@ -42,11 +42,11 @@ const now = () => Math.floor(Date.now() / 1000);
 const state = { startedAt: now(), lastPassAt: 0, vaults: new Map() };
 const gitVaults = cfg.vaults.filter((v) => v.git);
 
-function pass() {
+async function pass() {
   for (const vault of gitVaults) {
     let r;
     try {
-      r = processVault(vault, cfg, { dryRun });
+      r = await processVault(vault, cfg, { dryRun });
     } catch (err) {
       log(C, `${vault.name}: keeper error: ${err.message}`);
       continue;
@@ -72,7 +72,7 @@ function pass() {
 }
 
 if (once) {
-  pass();
+  await pass();
   process.exit(0);
 }
 
@@ -102,12 +102,23 @@ if (cfg.ui.enabled) {
 }
 
 log(C, `${gitVaults.length} git-backed vault(s), every ${cfg.intervalSeconds}s`);
-pass();
-const timer = setInterval(pass, cfg.intervalSeconds * 1000);
+// The next pass is scheduled when this one finishes, so a slow pass delays the
+// next instead of overlapping it.
+let timer;
+async function loop() {
+  const started = Date.now();
+  try {
+    await pass();
+  } catch (err) {
+    log(C, `keeper pass error: ${err.message}`);
+  }
+  timer = setTimeout(loop, Math.max(0, cfg.intervalSeconds * 1000 - (Date.now() - started)));
+}
+loop();
 
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
-    clearInterval(timer);
+    clearTimeout(timer);
     if (ui) ui.close();
     server.close(() => process.exit(0));
   });

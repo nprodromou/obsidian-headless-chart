@@ -4,8 +4,8 @@ description: >-
   Obsidian Sync without the desktop app, using the official headless client,
   with optional git-backed vaults. Unofficial; not affiliated with Obsidian.
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 home: https://github.com/nprodromou/obsidian-headless-chart
 sources:
   - https://github.com/nprodromou/obsidian-headless-chart

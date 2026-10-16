@@ -52,7 +52,7 @@ vaults:
 
 ```bash
 helm install obsidian oci://ghcr.io/nprodromou/charts/obsidian-headless-sync \
-  --version 0.1.1 -f values.yaml
+  --version 0.1.2 -f values.yaml
 ```
 
 **3. Log in and link.** Get the setup code the keeper prints on start, open the page, and enter it:
@@ -109,7 +109,7 @@ vaults:
 
 ```bash
 helm install obsidian oci://ghcr.io/nprodromou/charts/obsidian-headless-sync \
-  --version 0.1.1 -f values.yaml
+  --version 0.1.2 -f values.yaml
 ```
 
 Watch the first start with `kubectl logs deploy/obsidian-obsidian-headless-sync -c prepare -f`.

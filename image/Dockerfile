@@ -10,7 +10,9 @@
 # set `obsidian.installClient: false` in the chart values. Do not publish an
 # image built that way.
 
-ARG NODE_VERSION=22
+# 22.23.4: October 2026 Node security release (WOVED-7819). Exact patch so a
+# rebuild cannot resolve to a cached older 22.x layer.
+ARG NODE_VERSION=22.23.4
 
 FROM node:${NODE_VERSION}-bookworm-slim
 

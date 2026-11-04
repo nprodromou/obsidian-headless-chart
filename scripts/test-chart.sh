@@ -25,11 +25,14 @@ for values in "$CHART"/ci/*.yaml; do
   helm template t "$CHART" -n obs -f "$values" > "$OUT/$name.yaml"
   helm template t "$CHART" -n obs -f "$values" --show-only templates/configmap.yaml \
     | yq '.data."config.json"' > "$OUT/$name.config.json"
-  node --input-type=module -e "
-    const { loadConfig } = await import('$ROOT/image/app/lib/config.mjs');
-    const cfg = loadConfig('$OUT/$name.config.json');
-    console.log('   config ok:', cfg.vaults.map((v) => v.name + (v.git ? ' (git)' : '')).join(', '));
-  "
+  # Paths go in as argv, never into the JS source, so quotes in a path can't break it.
+  node --input-type=module -e '
+    const { pathToFileURL } = await import("node:url");
+    const [lib, configPath] = process.argv.slice(1);
+    const { loadConfig } = await import(pathToFileURL(lib).href);
+    const cfg = loadConfig(configPath);
+    console.log("   config ok:", cfg.vaults.map((v) => v.name + (v.git ? " (git)" : "")).join(", "));
+  ' "$ROOT/image/app/lib/config.mjs" "$OUT/$name.config.json"
 done
 
 kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" \
